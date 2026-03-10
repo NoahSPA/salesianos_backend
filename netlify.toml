@@ -12,5 +12,14 @@
   status = 200
   force = true
 
+# CORS: necesario para respuestas de error (404/502) que no pasan por FastAPI.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "https://salesianosfrontend.netlify.app"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization"
+    Access-Control-Allow-Credentials = "true"
+
 # Variables de entorno: configurar en Netlify UI o en [context.production.env] aquí.
 # No poner secretos en este archivo; usar Netlify UI.
