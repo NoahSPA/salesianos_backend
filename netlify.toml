@@ -1,5 +1,7 @@
-# Backend solo API: sin carpeta publish, todo el tráfico va a la función serverless.
+# Backend solo API: la API corre como función serverless, NO como uvicorn.
+# IMPORTANTE: En Netlify UI, el Build command debe estar vacío o coincidir con esto.
 [build]
+  command = "echo 'Functions only - no build needed'"
   publish = "netlify_public"
   functions = "netlify/functions"
 
