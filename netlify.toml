@@ -1,0 +1,14 @@
+# Backend solo API: sin carpeta publish, todo el tráfico va a la función serverless.
+[build]
+  publish = "netlify_public"
+  functions = "netlify/functions"
+
+# Todas las peticiones las atiende la función server (FastAPI vía Mangum).
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/server"
+  status = 200
+  force = true
+
+# Variables de entorno: configurar en Netlify UI o en [context.production.env] aquí.
+# No poner secretos en este archivo; usar Netlify UI.
