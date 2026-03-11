@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.deps import get_current_user, require_roles
 from app.db.ids import oid
 from app.domains.audit.service import log_audit
+from app.domains.match_statuses.repo import status_code_exists
 from app.domains.matches.repo import create_match, get_match, list_matches, update_match
 from app.domains.matches.schemas import MatchCreate, MatchOut, MatchUpdate
 
@@ -21,6 +22,11 @@ async def matches_list(series_id: str | None = None, tournament_id: str | None =
 
 @router.post("", response_model=MatchOut, dependencies=[Depends(require_roles("admin", "delegado"))])
 async def matches_create(payload: MatchCreate, actor=Depends(get_current_user)) -> MatchOut:
+    if not await status_code_exists(payload.status):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Estado de partido no válido: '{payload.status}'. Debe existir en la configuración (match_statuses).",
+        )
     doc = payload.model_dump()
     doc["tournament_id"] = oid(doc["tournament_id"])
     doc["series_id"] = oid(doc["series_id"])
@@ -42,7 +48,13 @@ async def matches_patch(match_id: str, payload: MatchUpdate, actor=Depends(get_c
     before = await get_match(match_id)
     if not before:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontrado")
-    after = await update_match(match_id, payload.model_dump())
+    patch = payload.model_dump()
+    if patch.get("status") is not None and not await status_code_exists(patch["status"]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Estado de partido no válido: '{patch['status']}'. Debe existir en la configuración (match_statuses).",
+        )
+    after = await update_match(match_id, patch)
     await log_audit(actor=actor, action="match_updated", entity_type="match", entity_id=match_id, before=before, after=after)
     return MatchOut(**after)
 

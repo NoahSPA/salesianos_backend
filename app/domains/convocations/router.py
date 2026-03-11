@@ -70,6 +70,11 @@ async def upsert_match_convocation(match_id: str, payload: ConvocationUpsert, ac
     match = await get_match(match_id)
     if not match:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partido no encontrado")
+    if (match.get("status") or {}).get("code") == "jugado":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede crear ni actualizar convocatoria para un partido ya jugado.",
+        )
 
     before = await get_convocation_by_match(match_id=match_id, series_id=match["series_id"])
     conv = await upsert_convocation(

@@ -10,15 +10,6 @@ class Role(str, Enum):
     jugador = "jugador"
 
 
-class MatchStatus(str, Enum):
-    programado = "programado"
-    borrador = "borrador"
-    publicado = "publicado"
-    jugado = "jugado"
-    suspendido = "suspendido"
-    reprogramado = "reprogramado"
-
-
 class AttendanceStatus(str, Enum):
     pending = "pending"
     confirmed = "confirmed"

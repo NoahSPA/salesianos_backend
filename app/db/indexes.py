@@ -27,6 +27,11 @@ async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await db.tournaments.create_index([("season_year", 1), ("name", 1)], unique=True)
     await db.tournaments.create_index([("active", 1), ("season_year", -1)])
 
+    # match_statuses (referencia: code, label, color_hex para badges)
+    await db.match_statuses.create_index("code", unique=True)
+    from app.domains.match_statuses.repo import ensure_match_statuses_seed
+    await ensure_match_statuses_seed(db)
+
     # matches
     await db.matches.create_index([("series_id", 1), ("match_date", 1)])
     await db.matches.create_index([("tournament_id", 1), ("match_date", 1)])

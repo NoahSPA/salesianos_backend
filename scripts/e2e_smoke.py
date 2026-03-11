@@ -131,7 +131,7 @@ def main() -> int:
             "venue": "E2E Cancha",
             "field_number": "1",
             "notes": None,
-            "status": "publicado",
+            "status": "programado",
         },
         auth,
     )

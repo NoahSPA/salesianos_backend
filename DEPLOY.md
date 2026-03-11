@@ -1,5 +1,36 @@
 # Despliegue Backend (Dokploy)
 
+## Crear imagen y subir a Docker Hub
+
+Usuario Docker Hub: **joseschmeisser**.
+
+```bash
+cd backend   # o la ruta del repo salesianos_backend
+
+# Login (solo la primera vez o cuando expire)
+docker login
+
+# Crear la imagen
+docker build -t joseschmeisser/salesianos-backend:latest .
+
+# Etiquetar (si ya construiste con otro nombre)
+docker tag salesianos-backend:latest joseschmeisser/salesianos-backend:latest
+
+# Subir a Docker Hub
+docker push joseschmeisser/salesianos-backend:latest
+```
+
+Para una versión concreta (ej. `v1.0.0`):
+
+```bash
+docker build -t joseschmeisser/salesianos-backend:v1.0.0 .
+docker push joseschmeisser/salesianos-backend:v1.0.0
+```
+
+En Dokploy puedes usar **Build Type: Dockerfile** (que construye desde el repo) o, si prefieres usar la imagen preconstruida de Docker Hub, configurar la aplicación para **imagen** `joseschmeisser/salesianos-backend:latest` y no hacer build desde código.
+
+---
+
 ## Build en Dokploy
 
 **En la aplicación backend en Dokploy:**

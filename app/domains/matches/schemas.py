@@ -4,11 +4,12 @@ from datetime import date
 
 from pydantic import Field
 
-from app.core.enums import MatchStatus
 from app.core.schemas import APIModel, DocOut
+from app.domains.match_statuses.schemas import MatchStatusOut
 
 
 class MatchCreate(APIModel):
+    """status: código válido según colección match_statuses (BD es fuente de verdad)."""
     tournament_id: str
     series_id: str
     opponent: str = Field(min_length=1, max_length=80)
@@ -17,10 +18,11 @@ class MatchCreate(APIModel):
     venue: str = Field(default="", max_length=120)
     field_number: str | None = Field(default=None, max_length=20)
     notes: str | None = Field(default=None, max_length=500)
-    status: MatchStatus = MatchStatus.programado
+    status: str = Field(default="programado", min_length=1, max_length=40)
 
 
 class MatchUpdate(APIModel):
+    """status: si se envía, debe existir en match_statuses (BD es fuente de verdad)."""
     tournament_id: str | None = None
     series_id: str | None = None
     opponent: str | None = Field(default=None, min_length=1, max_length=80)
@@ -29,7 +31,7 @@ class MatchUpdate(APIModel):
     venue: str | None = Field(default=None, max_length=120)
     field_number: str | None = Field(default=None, max_length=20)
     notes: str | None = Field(default=None, max_length=500)
-    status: MatchStatus | None = None
+    status: str | None = Field(default=None, min_length=1, max_length=40)
 
     result: str | None = Field(default=None, max_length=50)
     our_goals: int | None = Field(default=None, ge=0, le=99)
@@ -47,7 +49,7 @@ class MatchOut(DocOut):
     venue: str
     field_number: str | None = None
     notes: str | None = None
-    status: MatchStatus
+    status: MatchStatusOut  # Resuelto desde match_statuses (code, label, color_hex)
 
     result: str | None = None
     our_goals: int | None = None
