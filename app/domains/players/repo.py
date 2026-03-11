@@ -42,6 +42,8 @@ def _to_out(d: dict) -> dict:
         d["position_secondary"] = d["positions"][1]
     if d.get("level") is None and d.get("level_stars") is not None:
         d["level"] = str(d["level_stars"])
+    if d.get("avatar_file_id") is not None:
+        d["avatar_file_id"] = str(d["avatar_file_id"])
     return d
 
 

@@ -264,6 +264,7 @@ class PlayerOut(DocOut):
     active: bool
     notes: str | None = None
     avatar_url: str | None = None
+    avatar_file_id: str | None = Field(default=None, description="ID del archivo en GridFS (avatar subido)")
 
 
 class PlayerImportResult(APIModel):

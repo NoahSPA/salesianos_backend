@@ -35,6 +35,7 @@ class MePlayerOut(APIModel):
     first_name: str
     last_name: str
     avatar_url: str | None = None
+    avatar_file_id: str | None = None
 
 
 class UserOut(DocOut):

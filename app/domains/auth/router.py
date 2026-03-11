@@ -73,7 +73,7 @@ async def me(user=Depends(get_current_user)) -> MeOut:
         db = get_db()
         pl = await db.players.find_one(
             {"_id": pid},
-            projection={"first_name": 1, "last_name": 1, "avatar_url": 1},
+            projection={"first_name": 1, "last_name": 1, "avatar_url": 1, "avatar_file_id": 1},
         )
         if pl:
             out["player"] = {
@@ -81,6 +81,7 @@ async def me(user=Depends(get_current_user)) -> MeOut:
                 "first_name": pl["first_name"],
                 "last_name": pl["last_name"],
                 "avatar_url": pl.get("avatar_url") or None,
+                "avatar_file_id": str(pl["avatar_file_id"]) if pl.get("avatar_file_id") else None,
             }
     return MeOut(**out)
 

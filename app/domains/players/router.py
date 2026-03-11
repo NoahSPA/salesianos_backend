@@ -5,6 +5,7 @@ import io
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import Response
 
 from app.api.deps import get_current_user, require_roles
 from app.core.validators import normalize_rut
@@ -12,6 +13,7 @@ from app.db.ids import oid
 from app.domains.audit.service import log_audit
 from app.domains.players.repo import create_player, get_player, list_players, update_player, upsert_by_rut
 from app.domains.players.schemas import PlayerCreate, PlayerImportResult, PlayerOut, PlayerUpdate
+from app.storage.gridfs import delete_avatar_file, get_avatar_file, upload_avatar
 
 router = APIRouter(prefix="/players", tags=["players"])
 
@@ -61,6 +63,62 @@ async def players_get(player_id: str) -> PlayerOut:
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontrado")
     return PlayerOut(**doc)
+
+
+@router.get("/{player_id}/avatar")
+async def players_get_avatar(player_id: str) -> Response:
+    """Sirve el avatar del jugador desde GridFS. Si no tiene avatar_file_id, 404."""
+    doc = await get_player(player_id)
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontrado")
+    file_id = doc.get("avatar_file_id")
+    if not file_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No tiene avatar")
+    result = await get_avatar_file(file_id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar no encontrado")
+    data, content_type = result
+    return Response(content=data, media_type=content_type)
+
+
+@router.post("/{player_id}/avatar", response_model=PlayerOut, dependencies=[Depends(require_roles("admin"))])
+async def players_upload_avatar(
+    player_id: str,
+    actor=Depends(get_current_user),
+    file: UploadFile = File(...),
+) -> PlayerOut:
+    """Sube el avatar del jugador. Acepta image/jpeg, image/png, image/webp. Comprime si supera el límite."""
+    doc = await get_player(player_id)
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontrado")
+    ct = file.content_type or ""
+    if ct not in {"image/jpeg", "image/png", "image/webp", "image/jpg"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Formato no soportado. Use JPEG, PNG o WebP",
+        )
+    if ct == "image/jpg":
+        ct = "image/jpeg"
+    raw = await file.read()
+    if len(raw) < 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Archivo vacío")
+    old_file_id = doc.get("avatar_file_id")
+    try:
+        file_id = await upload_avatar(raw, ct, filename=file.filename or "avatar")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    await update_player(player_id, {"avatar_file_id": file_id})
+    if old_file_id:
+        await delete_avatar_file(old_file_id)
+    out = await get_player(player_id)
+    await log_audit(
+        actor=actor,
+        action="player_avatar_uploaded",
+        entity_type="player",
+        entity_id=player_id,
+        after={"avatar_file_id": file_id},
+    )
+    return PlayerOut(**out)
 
 
 @router.patch("/{player_id}", response_model=PlayerOut, dependencies=[Depends(require_roles("admin"))])
