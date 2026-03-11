@@ -27,6 +27,20 @@ docker build -t joseschmeisser/salesianos-backend:v1.0.0 .
 docker push joseschmeisser/salesianos-backend:v1.0.0
 ```
 
+## Frontend – imagen en Docker Hub
+
+Desde el repo **salesianos_frontend** (carpeta `frontend`):
+
+```bash
+cd frontend
+docker build -t joseschmeisser/salesianos-frontend:latest .
+docker push joseschmeisser/salesianos-frontend:latest
+```
+
+Opcional: pasar `VITE_API_BASE` y `VITE_MAPBOX_TOKEN` con `--build-arg` si necesitas valores de producción en el build.
+
+---
+
 En Dokploy puedes usar **Build Type: Dockerfile** (que construye desde el repo) o, si prefieres usar la imagen preconstruida de Docker Hub, configurar la aplicación para **imagen** `joseschmeisser/salesianos-backend:latest` y no hacer build desde código.
 
 ---
