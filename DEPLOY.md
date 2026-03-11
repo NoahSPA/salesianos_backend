@@ -1,5 +1,12 @@
 # Despliegue Backend (Dokploy)
 
+## URLs de producción (VPS 76.13.160.196)
+
+| Servicio | URL |
+|----------|-----|
+| Frontend | https://salesianos.jschmeisser.cl/ |
+| Backend  | https://salesianosbackend.jschmeisser.cl/ |
+
 ## Build
 
 - **Método:** Dockerfile (no Nixpacks).
@@ -28,10 +35,20 @@
 
 ## CORS
 
-Incluir en `CORS_ORIGINS` la URL pública del frontend (la que usa Dokploy), por ejemplo:
+En Dokploy (backend) definir **CORS_ORIGINS** con la URL del frontend:
 
 ```
-https://salesianos.tudominio.com
+https://salesianos.jschmeisser.cl
 ```
 
-Sin esa URL, el navegador bloqueará las peticiones al API.
+(Sin barra final. Si usas www u otras variantes, añádelas separadas por comas.)
+
+---
+
+## Frontend (Dokploy) – variable de build
+
+En el servicio **frontend** de Dokploy, definir en variables de entorno (build time):
+
+- **VITE_API_BASE** = `https://salesianosbackend.jschmeisser.cl`
+
+Así el frontend compilado apunta al API en producción. Sin esto, las peticiones irían a localhost.
