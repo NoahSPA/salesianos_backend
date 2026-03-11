@@ -1,0 +1,74 @@
+# =============================================================================
+# Salesianos FC API - Docker Compose
+# =============================================================================
+# Uso: desde backend/ ejecutar `docker compose up -d`
+# Para usar MongoDB local: MONGODB_URI apunta a mongo:27017.
+# Para usar MongoDB Atlas: definir MONGODB_URI en .env con la URI de Atlas.
+# =============================================================================
+
+name: salesianos-api
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: salesianos-mongo
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-password}
+      MONGO_INITDB_DATABASE: salesianos_fc
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - salesianos-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  salesianos-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: salesianos-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # MongoDB: por defecto Mongo local del compose; para Atlas definir MONGODB_URI en .env
+      MONGODB_URI: ${MONGODB_URI:-mongodb://admin:password@mongo:27017/salesianos_fc?authSource=admin}
+      MONGODB_DB: ${MONGODB_DB:-salesianos_fc}
+      # JWT y cookies
+      JWT_SECRET: ${JWT_SECRET:-cambiar-en-produccion-secret-jwt}
+      JWT_ALG: ${JWT_ALG:-HS256}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-30}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-30}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      # CORS (orígenes permitidos, separados por comas)
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}
+      BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:-}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - salesianos-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  mongo_data:
+    driver: local
+
+networks:
+  salesianos-network:
+    driver: bridge
