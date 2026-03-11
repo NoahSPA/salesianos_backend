@@ -29,6 +29,14 @@ class PlayerRefOut(APIModel):
     last_name: str
 
 
+class MePlayerOut(APIModel):
+    """Jugador vinculado al usuario actual (para /me), con avatar opcional."""
+    id: str
+    first_name: str
+    last_name: str
+    avatar_url: str | None = None
+
+
 class UserOut(DocOut):
     username: str
     role: Role
@@ -64,6 +72,8 @@ class MeOut(APIModel):
     username: str
     role: Role
     active: bool
+    player_id: str | None = None
+    player: MePlayerOut | None = None
 
 
 class BootstrapAdminIn(APIModel):

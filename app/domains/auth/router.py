@@ -59,7 +59,30 @@ async def logout(
 
 @router.get("/me", response_model=MeOut)
 async def me(user=Depends(get_current_user)) -> MeOut:
-    return MeOut(id=user["id"], username=user["username"], role=user["role"], active=user["active"])
+    out = {
+        "id": user["id"],
+        "username": user["username"],
+        "role": user["role"],
+        "active": user["active"],
+        "player_id": None,
+        "player": None,
+    }
+    pid = user.get("player_id")
+    if pid:
+        out["player_id"] = str(pid)
+        db = get_db()
+        pl = await db.players.find_one(
+            {"_id": pid},
+            projection={"first_name": 1, "last_name": 1, "avatar_url": 1},
+        )
+        if pl:
+            out["player"] = {
+                "id": str(pl["_id"]),
+                "first_name": pl["first_name"],
+                "last_name": pl["last_name"],
+                "avatar_url": pl.get("avatar_url") or None,
+            }
+    return MeOut(**out)
 
 
 def _user_doc_from_create(payload: UserCreate) -> dict:
