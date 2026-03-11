@@ -46,22 +46,14 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - Documentación Swagger: http://localhost:8000/docs  
 - ReDoc: http://localhost:8000/redoc  
 
-### Modo Netlify (como en producción)
+### Despliegue (Dokploy / Docker)
 
-Simula el entorno de Netlify en local: la API se sirve como función serverless.
-
-**Requisitos:** [Node.js](https://nodejs.org/) y [Netlify CLI](https://docs.netlify.com/cli/get-started/) (`npm install -g netlify-cli` o `npx netlify dev`).
+Para producción en un VPS con [Dokploy](https://dokploy.com/), usar el **Dockerfile** de la raíz. Ver **[DEPLOY.md](DEPLOY.md)** para pasos y variables de entorno.
 
 ```bash
-# Desde la raíz del backend, con .env configurado
-netlify dev
+# Local con Docker (opcional)
+docker compose up -d
 ```
-
-- El servidor suele arrancar en **http://localhost:8888**.
-- Las peticiones se enrutan a la función `server` (FastAPI envuelta con Mangum).
-- Swagger: http://localhost:8888/docs  
-
-Para desplegar en Netlify, conecta este repositorio a un sitio en Netlify, configura las variables de entorno en la UI y despliega. Todas las rutas se redirigen a `/.netlify/functions/server`.  
 
 ## Variables de entorno
 

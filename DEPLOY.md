@@ -1,17 +1,14 @@
 # Despliegue Backend (Dokploy)
 
-## ⚠️ Importante: usar Dockerfile, no Nixpacks
-
-Este repo tiene un `package.json` (solo para `netlify dev`). Si en Dokploy dejas **Build Type = Nixpacks** (o Auto), detectará Node y fallará con *"No start command could be found"*.
+## Build en Dokploy
 
 **En la aplicación backend en Dokploy:**
 
-1. Entra en **Settings** / **Build** de la aplicación.
-2. **Build Type:** elige **Dockerfile** (no Nixpacks ni Auto).
-3. **Dockerfile path:** `Dockerfile` (o deja el valor por defecto si ya apunta a la raíz).
-4. **Build context:** raíz del repo (`.`).
-5. **Puerto del contenedor:** 8000.
-6. Guarda y vuelve a desplegar.
+1. **Build Type:** Dockerfile (no Nixpacks ni Auto).
+2. **Dockerfile path:** `Dockerfile` (raíz del repo).
+3. **Build context:** raíz (`.`).
+4. **Puerto del contenedor:** 8000.
+5. Guarda y desplegar.
 
 ---
 

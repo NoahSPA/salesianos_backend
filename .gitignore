@@ -23,5 +23,5 @@ Thumbs.db
 # Logs
 *.log
 
-# Node (para netlify dev)
+# Node (opcional)
 node_modules/
