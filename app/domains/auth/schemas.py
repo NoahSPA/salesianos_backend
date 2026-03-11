@@ -13,12 +13,28 @@ class UserCreate(APIModel):
     password: str = Field(min_length=8, max_length=200)
     role: Role
     active: bool = True
+    player_id: str | None = Field(default=None, description="Opcional: vincula este usuario al jugador (ej. rol jugador)")
+
+
+class UserUpdate(APIModel):
+    """Actualización parcial: active y/o player_id."""
+    active: bool | None = None
+    player_id: str | None = None
+
+
+class PlayerRefOut(APIModel):
+    """Referencia mínima del jugador vinculado a un usuario."""
+    id: str
+    first_name: str
+    last_name: str
 
 
 class UserOut(DocOut):
     username: str
     role: Role
     active: bool
+    player_id: str | None = None
+    player: PlayerRefOut | None = Field(default=None, description="Jugador vinculado (populado en listado)")
 
 
 class AdminSetPasswordIn(APIModel):

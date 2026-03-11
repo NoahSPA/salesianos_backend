@@ -7,6 +7,7 @@ async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     # users
     await db.users.create_index("username", unique=True)
     await db.users.create_index([("role", 1), ("active", 1)])
+    await db.users.create_index("player_id", unique=True, sparse=True)  # un jugador solo puede estar vinculado a un usuario
 
     # players
     await db.players.create_index("rut", unique=True)

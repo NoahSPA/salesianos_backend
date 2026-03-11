@@ -7,7 +7,7 @@ from app.core.security import REFRESH_COOKIE_NAME, decode_jwt, hash_password, ve
 from app.db.ids import oid
 from app.db.mongo import get_db, now_utc
 from app.domains.audit.service import log_audit
-from app.domains.auth.schemas import AdminSetPasswordIn, BootstrapAdminIn, ChangePasswordIn, LoginIn, MeOut, TokenOut, UserCreate, UserOut
+from app.domains.auth.schemas import AdminSetPasswordIn, BootstrapAdminIn, ChangePasswordIn, LoginIn, MeOut, TokenOut, UserCreate, UserOut, UserUpdate
 from app.domains.auth.service import authenticate_user, bootstrap_first_admin, issue_tokens, logout as logout_service, rotate_refresh
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -62,9 +62,7 @@ async def me(user=Depends(get_current_user)) -> MeOut:
     return MeOut(id=user["id"], username=user["username"], role=user["role"], active=user["active"])
 
 
-@router.post("/users", dependencies=[Depends(require_roles("admin"))])
-async def create_user(payload: UserCreate, actor=Depends(get_current_user)) -> UserOut:
-    db = get_db()
+def _user_doc_from_create(payload: UserCreate) -> dict:
     now = now_utc()
     doc = {
         "username": payload.username,
@@ -74,14 +72,31 @@ async def create_user(payload: UserCreate, actor=Depends(get_current_user)) -> U
         "created_at": now,
         "updated_at": now,
     }
+    if payload.player_id is not None:
+        doc["player_id"] = oid(payload.player_id)
+    return doc
+
+
+@router.post("/users", dependencies=[Depends(require_roles("admin"))])
+async def create_user(payload: UserCreate, actor=Depends(get_current_user)) -> UserOut:
+    db = get_db()
+    if payload.player_id:
+        player = await db.players.find_one({"_id": oid(payload.player_id)}, projection={"first_name": 1, "last_name": 1})
+        if not player:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Jugador no encontrado")
+        existing = await db.users.find_one({"player_id": oid(payload.player_id)})
+        if existing:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ese jugador ya está vinculado a otro usuario")
+    doc = _user_doc_from_create(payload)
     res = await db.users.insert_one(doc)
     out = {
         "id": str(res.inserted_id),
         "username": payload.username,
         "role": payload.role.value,
         "active": payload.active,
-        "created_at": now,
-        "updated_at": now,
+        "player_id": payload.player_id,
+        "created_at": doc["created_at"],
+        "updated_at": doc["updated_at"],
     }
     await log_audit(
         actor=actor,
@@ -89,7 +104,7 @@ async def create_user(payload: UserCreate, actor=Depends(get_current_user)) -> U
         entity_type="user",
         entity_id=str(res.inserted_id),
         before=None,
-        after={k: out[k] for k in out if k != "password_hash"},
+        after={k: v for k, v in out.items() if k != "password_hash"},
     )
     return UserOut(**out)
 
@@ -101,8 +116,66 @@ async def list_users() -> list[UserOut]:
     out: list[UserOut] = []
     async for d in cur:
         d["id"] = str(d.pop("_id"))
+        pid = d.get("player_id")
+        if pid:
+            player = await db.players.find_one({"_id": pid}, projection={"first_name": 1, "last_name": 1})
+            if player:
+                d["player"] = {"id": str(player["_id"]), "first_name": player["first_name"], "last_name": player["last_name"]}
+        d["player_id"] = str(pid) if pid else None
         out.append(UserOut(**d))
     return out
+
+
+@router.patch("/users/{user_id}", response_model=UserOut, dependencies=[Depends(require_roles("admin"))])
+async def update_user(user_id: str, payload: UserUpdate, actor=Depends(get_current_user)) -> UserOut:
+    """Actualiza usuario: active y/o player_id (vincular/desvincular jugador)."""
+    db = get_db()
+    user = await db.users.find_one({"_id": oid(user_id)})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    patch = payload.model_dump(exclude_unset=True)
+    if "player_id" in patch:
+        if patch["player_id"] is None:
+            patch["player_id"] = None
+        else:
+            player = await db.players.find_one({"_id": oid(patch["player_id"])}, projection={"first_name": 1, "last_name": 1})
+            if not player:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Jugador no encontrado")
+            other = await db.users.find_one({"player_id": oid(patch["player_id"]), "_id": {"$ne": oid(user_id)}})
+            if other:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ese jugador ya está vinculado a otro usuario")
+            patch["player_id"] = oid(patch["player_id"])
+    if not patch:
+        # Devolver usuario actual
+        d = {**user, "id": str(user["_id"]), "player_id": str(user["player_id"]) if user.get("player_id") else None}
+        if d.get("player_id"):
+            pl = await db.players.find_one({"_id": user["player_id"]}, projection={"first_name": 1, "last_name": 1})
+            if pl:
+                d["player"] = {"id": str(pl["_id"]), "first_name": pl["first_name"], "last_name": pl["last_name"]}
+        d.pop("_id", None)
+        d.pop("password_hash", None)
+        return UserOut(**d)
+    now = now_utc()
+    patch["updated_at"] = now
+    await db.users.update_one({"_id": oid(user_id)}, {"$set": patch})
+    after = await db.users.find_one({"_id": oid(user_id)}, projection={"password_hash": 0})
+    if not after:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    after["id"] = str(after.pop("_id"))
+    after["player_id"] = str(after["player_id"]) if after.get("player_id") else None
+    if after.get("player_id"):
+        pl = await db.players.find_one({"_id": oid(after["player_id"])}, projection={"first_name": 1, "last_name": 1})
+        if pl:
+            after["player"] = {"id": str(pl["_id"]), "first_name": pl["first_name"], "last_name": pl["last_name"]}
+    await log_audit(
+        actor=actor,
+        action="user_updated",
+        entity_type="user",
+        entity_id=user_id,
+        before={"username": user.get("username"), "player_id": str(user["player_id"]) if user.get("player_id") else None},
+        after={"username": after.get("username"), "player_id": after.get("player_id")},
+    )
+    return UserOut(**after)
 
 
 @router.post(
