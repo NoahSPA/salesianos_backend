@@ -5,6 +5,10 @@
   publish = "netlify_public"
   functions = "netlify/functions"
 
+# Incluir app/ en el bundle de la función (Netlify solo empaqueta server.py + pip por defecto).
+[functions]
+  included_files = ["app/**"]
+
 # Todas las peticiones las atiende la función server (FastAPI vía Mangum).
 [[redirects]]
   from = "/*"
@@ -12,14 +16,9 @@
   status = 200
   force = true
 
-# CORS: necesario para respuestas de error (404/502) que no pasan por FastAPI.
-[[headers]]
-  for = "/*"
-  [headers.values]
-    Access-Control-Allow-Origin = "https://salesianosfrontend.netlify.app"
-    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
-    Access-Control-Allow-Headers = "Content-Type, Authorization"
-    Access-Control-Allow-Credentials = "true"
+# CORS: Edge Function netlify/edge-functions/cors.ts inyecta cabeceras en todas las
+# respuestas (incl. 502) y responde OPTIONS sin invocar Lambda.
 
-# Variables de entorno: configurar en Netlify UI o en [context.production.env] aquí.
+# Variables de entorno requeridas en Netlify UI: MONGODB_URI, JWT_SECRET,
+# CORS_ORIGINS=https://salesianosfrontend.netlify.app, COOKIE_SECURE=true
 # No poner secretos en este archivo; usar Netlify UI.
