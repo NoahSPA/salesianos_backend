@@ -1,5 +1,20 @@
 # Despliegue Backend (Dokploy)
 
+## ⚠️ Importante: usar Dockerfile, no Nixpacks
+
+Este repo tiene un `package.json` (solo para `netlify dev`). Si en Dokploy dejas **Build Type = Nixpacks** (o Auto), detectará Node y fallará con *"No start command could be found"*.
+
+**En la aplicación backend en Dokploy:**
+
+1. Entra en **Settings** / **Build** de la aplicación.
+2. **Build Type:** elige **Dockerfile** (no Nixpacks ni Auto).
+3. **Dockerfile path:** `Dockerfile` (o deja el valor por defecto si ya apunta a la raíz).
+4. **Build context:** raíz del repo (`.`).
+5. **Puerto del contenedor:** 8000.
+6. Guarda y vuelve a desplegar.
+
+---
+
 ## URLs de producción (VPS 76.13.160.196)
 
 | Servicio | URL |
@@ -7,10 +22,10 @@
 | Frontend | https://salesianos.jschmeisser.cl/ |
 | Backend  | https://salesianosbackend.jschmeisser.cl/ |
 
-## Build
+## Build (resumen)
 
-- **Método:** Dockerfile (no Nixpacks).
-- **Contexto:** raíz del repo (`backend` es la raíz en `salesianos_backend`).
+- **Método:** Dockerfile (obligatorio).
+- **Contexto:** raíz del repo (`salesianos_backend`).
 - **Puerto del contenedor:** 8000.
 - **Health check:** `GET /api/health` → 200.
 
