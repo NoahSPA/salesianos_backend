@@ -129,11 +129,14 @@ def _normalize_level_stars_from_legacy(level: str | None) -> int:
 
 
 class PlayerCreate(APIModel):
-    first_name: str = Field(min_length=1, max_length=50)
-    last_name: str = Field(min_length=1, max_length=50)
+    first_name: str = Field(min_length=1, max_length=50, description="Primer nombre")
+    second_first_name: str | None = Field(default=None, max_length=50, description="Segundo nombre")
+    last_name: str = Field(min_length=1, max_length=50, description="Primer apellido")
+    second_last_name: str | None = Field(default=None, max_length=50, description="Segundo apellido")
     rut: str = Field(min_length=7, max_length=15)
     birth_date: date
     phone: str = Field(min_length=6, max_length=30)
+    email: str | None = Field(default=None, max_length=255)
 
     primary_series_id: str = Field(min_length=1, description="ID de la serie principal")
     series_ids: list[str] = Field(default_factory=list)
@@ -191,10 +194,13 @@ class PlayerCreate(APIModel):
 
 class PlayerUpdate(APIModel):
     first_name: str | None = Field(default=None, min_length=1, max_length=50)
+    second_first_name: str | None = Field(default=None, max_length=50)
     last_name: str | None = Field(default=None, min_length=1, max_length=50)
+    second_last_name: str | None = Field(default=None, max_length=50)
     rut: str | None = Field(default=None, min_length=7, max_length=15)
     birth_date: date | None = None
     phone: str | None = Field(default=None, min_length=6, max_length=30)
+    email: str | None = Field(default=None, max_length=255)
 
     primary_series_id: str | None = None
     series_ids: list[str] | None = None
@@ -248,10 +254,13 @@ class PlayerUpdate(APIModel):
 
 class PlayerOut(DocOut):
     first_name: str
+    second_first_name: str | None = None
     last_name: str
+    second_last_name: str | None = None
     rut: str
     birth_date: date
     phone: str
+    email: str | None = None
     primary_series_id: str
     series_ids: list[str]
     positions: list[PlayerPosition]

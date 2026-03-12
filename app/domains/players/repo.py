@@ -44,6 +44,13 @@ def _to_out(d: dict) -> dict:
         d["level"] = str(d["level_stars"])
     if d.get("avatar_file_id") is not None:
         d["avatar_file_id"] = str(d["avatar_file_id"])
+    # Campos opcionales (nómina): asegurar que existan para la API
+    if "second_first_name" not in d:
+        d["second_first_name"] = None
+    if "second_last_name" not in d:
+        d["second_last_name"] = None
+    if "email" not in d:
+        d["email"] = None
     return d
 
 

@@ -35,7 +35,25 @@ async def list_series(*, active: bool | None = None) -> list[dict]:
 
 async def get_series(series_id: str) -> dict | None:
     db = get_db()
-    d = await db.series.find_one({"_id": oid(series_id)})
+    try:
+        d = await db.series.find_one({"_id": oid(series_id)})
+    except (ValueError, TypeError):
+        return None
+    if not d:
+        return None
+    d["id"] = str(d.pop("_id"))
+    for k in ("delegate_user_id", "treasurer_user_id", "delegate_player_id", "treasurer_player_id"):
+        if d.get(k) is not None:
+            d[k] = str(d[k])
+    return d
+
+
+async def get_series_by_name(name: str) -> dict | None:
+    """Busca una serie por nombre (insensible a mayúsculas)."""
+    if not (name or "").strip():
+        return None
+    db = get_db()
+    d = await db.series.find_one({"name": {"$regex": f"^{name.strip()}$", "$options": "i"}})
     if not d:
         return None
     d["id"] = str(d.pop("_id"))
