@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 
@@ -9,7 +11,7 @@ from app.api.deps import get_current_user, require_roles
 from app.domains.settings.repo import get_branding, update_branding
 from app.domains.settings.schemas import BrandingOut, BrandingUpdate
 from app.storage.gridfs import get_avatar_file, upload_avatar
-from app.storage.images import resize_for_og_image, resize_to_square_png
+from app.storage.images import generate_app_icon, resize_for_og_image, resize_to_square_png
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -116,5 +118,84 @@ async def settings_get_og_image() -> Response:
         headers={
             "Cache-Control": "public, max-age=86400",
             "ETag": f'"{file_id}"',
+        },
+    )
+
+
+@router.get("/app-icon")
+async def settings_get_app_icon(
+    size: int = Query(192, ge=64, le=1024),
+) -> Response:
+    """
+    Sirve un ícono cuadrado PNG para la app:
+    - fondo = primary_color de la marca
+    - logo centrado ocupando ~80% del canvas
+
+    Útil para iconos de PWA (launcher / app maskable).
+    """
+    data = await get_branding()
+    file_id = data.get("logo_file_id")
+    primary_color = data.get("primary_color") or "#006600"
+    if not file_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay logo")
+    result = await get_avatar_file(file_id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logo no encontrado")
+    body, content_type = result
+    try:
+        png_bytes = generate_app_icon(body, content_type, size, primary_color)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al procesar imagen")
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "ETag": f'"{file_id}-{primary_color}"',
+        },
+    )
+
+
+@router.get("/manifest.webmanifest")
+async def settings_get_manifest() -> Response:
+    """
+    Manifest dinámico para PWA basado en la configuración de marca.
+    Se puede usar desde el frontend con un <link rel="manifest"> apuntando a este endpoint.
+    """
+    data = await get_branding()
+    app_name = (data.get("app_name") or "Salesianos FC").strip() or "Salesianos FC"
+    primary = data.get("primary_color") or "#006600"
+    file_id = data.get("logo_file_id")
+
+    icons: list[dict] = []
+    if file_id:
+        for size in (192, 512):
+            icons.append(
+                {
+                    "src": f"/api/settings/app-icon?size={size}&v={file_id}",
+                    "sizes": f"{size}x{size}",
+                    "type": "image/png",
+                    "purpose": "any maskable",
+                }
+            )
+
+    manifest = {
+        "name": f"{app_name} — Gestión del equipo",
+        "short_name": app_name,
+        "description": "Gestión del equipo de fútbol amateur. Cuotas, convocatorias, partidos, jugadores y tesorería.",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "orientation": "portrait-primary",
+        "theme_color": primary,
+        "background_color": "#f1f5f9",
+        "icons": icons,
+    }
+    body = json.dumps(manifest, ensure_ascii=False).encode("utf-8")
+    return Response(
+        content=body,
+        media_type="application/manifest+json",
+        headers={
+            "Cache-Control": "public, max-age=3600",
         },
     )

@@ -107,3 +107,56 @@ def resize_for_og_image(
     out = io.BytesIO()
     out_img.save(out, format="JPEG", quality=85, optimize=True)
     return out.getvalue(), "image/jpeg"
+
+
+def generate_app_icon(
+    data: bytes,
+    content_type: str,
+    size: int,
+    background_hex: str,
+) -> bytes:
+    """
+    Genera un ícono cuadrado PNG de `size`x`size` con:
+    - fondo = color de marca
+    - logo centrado ocupando ~80% del lado.
+    """
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        content_type = "image/png"
+    try:
+        img = Image.open(io.BytesIO(data))
+    except Exception as e:
+        raise ValueError(f"No se pudo procesar la imagen: {e}") from e
+
+    img = img.convert("RGBA")
+
+    # Escalar logo para que el lado mayor sea ~80% del canvas
+    target = int(size * 0.8)
+    if target <= 0:
+        target = size
+    scale = min(target / img.width, target / img.height, 1.0)
+    new_w = max(1, int(img.width * scale))
+    new_h = max(1, int(img.height * scale))
+    if new_w != img.width or new_h != img.height:
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    # Color de fondo desde hex (#RRGGBB)
+    hex_color = (background_hex or "#006600").strip()
+    if hex_color.startswith("#"):
+        hex_color = hex_color[1:]
+    if len(hex_color) != 6:
+        hex_color = "006600"
+    try:
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+    except ValueError:
+        r, g, b = 0, 102, 0
+
+    bg = Image.new("RGB", (size, size), (r, g, b))
+    paste_x = (size - img.width) // 2
+    paste_y = (size - img.height) // 2
+    bg.paste(img, (paste_x, paste_y), mask=img)
+
+    out = io.BytesIO()
+    bg.save(out, format="PNG", optimize=True)
+    return out.getvalue()
