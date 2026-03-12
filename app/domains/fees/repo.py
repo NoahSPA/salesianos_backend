@@ -144,10 +144,11 @@ async def get_players_contribution(*, player_ids: list[str]) -> dict[str, dict]:
     return result
 
 
-async def get_collection_breakdown(series_id: str | None = None) -> dict:
+async def get_collection_breakdown(series_id: str | None = None, current_year_month: str | None = None) -> dict:
     """
     Recaudación desglosada por serie, torneo y jugador.
     Usa suma de 'paid' en monthly_charges (valor aplicado a cuotas).
+    total_pending por serie: saldo pendiente (amount - paid) en cargos con year_month <= current_year_month.
     Si series_id está definido, solo incluye esa serie y torneos/jugadores de esa serie.
     """
     db = get_db()
@@ -163,6 +164,25 @@ async def get_collection_breakdown(series_id: str | None = None) -> dict:
     async for doc in db.monthly_charges.aggregate(pipeline_series):
         by_series_raw.append({"series_id": str(doc["_id"]), "total_collected": int(doc.get("total_collected", 0))})
 
+    # Pendiente por serie (cargos con year_month <= current_year_month, saldo amount - paid)
+    pending_by_series: dict[str, int] = {}
+    if current_year_month:
+        pipeline_pending = [
+            {"$match": {"year_month": {"$lte": current_year_month}}},
+            {"$lookup": {"from": "players", "localField": "player_id", "foreignField": "_id", "as": "pl"}},
+            {"$unwind": {"path": "$pl", "preserveNullAndEmptyArrays": False}},
+        ]
+        if series_id:
+            pipeline_pending.append({"$match": {"pl.primary_series_id": oid(series_id)}})
+        pipeline_pending.append({
+            "$group": {
+                "_id": "$pl.primary_series_id",
+                "total_pending": {"$sum": {"$max": [0, {"$subtract": ["$amount", {"$ifNull": ["$paid", 0]}]}]}},
+            }
+        })
+        async for doc in db.monthly_charges.aggregate(pipeline_pending):
+            pending_by_series[str(doc["_id"])] = int(doc.get("total_pending", 0))
+
     # Nombres de series
     series_ids = [d["series_id"] for d in by_series_raw]
     series_names: dict[str, str] = {}
@@ -171,7 +191,12 @@ async def get_collection_breakdown(series_id: str | None = None) -> dict:
             series_names[str(s["_id"])] = s.get("name", "")
 
     by_series = [
-        {"series_id": d["series_id"], "series_name": series_names.get(d["series_id"], d["series_id"]), "total_collected": d["total_collected"]}
+        {
+            "series_id": d["series_id"],
+            "series_name": series_names.get(d["series_id"], d["series_id"]),
+            "total_collected": d["total_collected"],
+            "total_pending": pending_by_series.get(d["series_id"], 0),
+        }
         for d in by_series_raw
     ]
     by_series.sort(key=lambda x: (-x["total_collected"], x["series_name"]))

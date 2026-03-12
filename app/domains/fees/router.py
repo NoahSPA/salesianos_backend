@@ -91,7 +91,7 @@ async def fees_summary_by_period(series_id: str | None = None) -> dict:
     current_ym = f"{today.year:04d}-{today.month:02d}"
     periods = await get_fees_summary_by_period(current_year_month=current_ym, series_id=series_id)
     total_collected, total_pending = await get_fees_totals(current_year_month=current_ym, series_id=series_id)
-    collection_breakdown = await get_collection_breakdown(series_id=series_id)
+    collection_breakdown = await get_collection_breakdown(series_id=series_id, current_year_month=current_ym)
     return {
         "periods": periods,
         "total_collected": total_collected,

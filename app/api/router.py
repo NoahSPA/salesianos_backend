@@ -14,6 +14,7 @@ from app.domains.fees.router import router as fees_router
 from app.domains.fees.payments_router import router as payments_router
 from app.domains.rivals.router import router as rivals_router
 from app.domains.match_statuses.router import router as match_statuses_router
+from app.domains.settings.router import router as settings_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -29,4 +30,5 @@ api_router.include_router(fees_router)
 api_router.include_router(payments_router)
 api_router.include_router(rivals_router)
 api_router.include_router(match_statuses_router)
+api_router.include_router(settings_router)
 

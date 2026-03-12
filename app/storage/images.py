@@ -50,3 +50,60 @@ def compress_image_to_limit(
         out.truncate()
         img.save(out, format=fmt, quality=70, optimize=True)
     return out.getvalue(), mime
+
+
+def resize_to_square_png(
+    data: bytes,
+    content_type: str,
+    size: int,
+) -> bytes:
+    """
+    Redimensiona la imagen a un cuadrado de `size`x`size` píxeles y la devuelve como PNG.
+    Mantiene transparencia si la imagen original es RGBA.
+    """
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        content_type = "image/png"
+    try:
+        img = Image.open(io.BytesIO(data))
+    except Exception as e:
+        raise ValueError(f"No se pudo procesar la imagen: {e}") from e
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGBA")
+    else:
+        img = img.convert("RGB")
+    img.thumbnail((size, size), Image.Resampling.LANCZOS)
+    # Centrar en canvas size x size (por si la imagen no es cuadrada)
+    out_img = Image.new(img.mode, (size, size), (255, 255, 255, 0) if img.mode == "RGBA" else (255, 255, 255))
+    paste_x = (size - img.width) // 2
+    paste_y = (size - img.height) // 2
+    out_img.paste(img, (paste_x, paste_y))
+    out = io.BytesIO()
+    out_img.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def resize_for_og_image(
+    data: bytes,
+    content_type: str,
+    width: int = 512,
+    height: int = 512,
+) -> tuple[bytes, str]:
+    """
+    Redimensiona la imagen para uso en Open Graph / redes (cuadrado por defecto).
+    Devuelve (bytes, content_type) en JPEG para menor peso.
+    """
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        content_type = "image/png"
+    try:
+        img = Image.open(io.BytesIO(data))
+    except Exception as e:
+        raise ValueError(f"No se pudo procesar la imagen: {e}") from e
+    img = img.convert("RGB")
+    img.thumbnail((width, height), Image.Resampling.LANCZOS)
+    out_img = Image.new("RGB", (width, height), (255, 255, 255))
+    paste_x = (width - img.width) // 2
+    paste_y = (height - img.height) // 2
+    out_img.paste(img, (paste_x, paste_y))
+    out = io.BytesIO()
+    out_img.save(out, format="JPEG", quality=85, optimize=True)
+    return out.getvalue(), "image/jpeg"
