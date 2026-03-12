@@ -3,10 +3,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
+import bcrypt
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.settings import settings
+
+# Compatibilidad passlib con bcrypt 4.1+ (que eliminó __about__)
+if not hasattr(bcrypt, "__about__"):
+    _about = type("About", (), {"__version__": getattr(bcrypt, "__version__", "4.0.1")})()
+    bcrypt.__about__ = _about
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
