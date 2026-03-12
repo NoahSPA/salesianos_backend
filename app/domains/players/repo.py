@@ -80,7 +80,7 @@ async def list_players(*, active: bool | None = None, series_id: str | None = No
                 {"last_name": {"$regex": qn, "$options": "i"}},
                 {"rut": {"$regex": qn, "$options": "i"}},
             ]
-    cur = db.players.find(flt).sort([("active", -1), ("last_name", 1), ("first_name", 1)])
+    cur = db.players.find(flt).sort([("active", -1), ("first_name", 1), ("last_name", 1)])
     out: list[dict] = []
     async for d in cur:
         out.append(_to_out(d))

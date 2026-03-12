@@ -63,5 +63,7 @@ class SeriesOut(DocOut):
     delegate_player_id: str | None = None
     treasurer_user_id: str | None = None
     treasurer_player_id: str | None = None
+    delegate_display_name: str | None = None
+    treasurer_display_name: str | None = None
     whatsapp_group_url: str | None = None
 
