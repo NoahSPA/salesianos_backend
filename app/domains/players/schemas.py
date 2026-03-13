@@ -134,12 +134,12 @@ class PlayerCreate(APIModel):
     second_first_name: str | None = Field(default=None, max_length=50, description="Segundo nombre")
     last_name: str = Field(min_length=1, max_length=50, description="Primer apellido")
     second_last_name: str | None = Field(default=None, max_length=50, description="Segundo apellido")
-    rut: str = Field(min_length=7, max_length=15)
-    birth_date: date
-    phone: str = Field(min_length=6, max_length=30)
+    rut: str | None = Field(default=None, min_length=7, max_length=15, description="Opcional para jugadores en memoria")
+    birth_date: date | None = Field(default=None, description="Opcional para jugadores en memoria")
+    phone: str | None = Field(default=None, min_length=6, max_length=30, description="Opcional para jugadores en memoria")
     email: str | None = Field(default=None, max_length=255)
 
-    primary_series_id: str = Field(min_length=1, description="ID de la serie principal")
+    primary_series_id: str | None = Field(default=None, description="ID serie principal. Opcional para jugadores en memoria")
     series_ids: list[str] = Field(default_factory=list)
 
     dorsal: int | None = Field(default=None, ge=1, le=99, description="Número de camiseta")
@@ -160,7 +160,9 @@ class PlayerCreate(APIModel):
 
     @field_validator("rut")
     @classmethod
-    def _rut(cls, v: str) -> str:
+    def _rut(cls, v: str | None) -> str | None:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
         return normalize_rut(v)
 
     @field_validator("talla")
@@ -194,16 +196,33 @@ class PlayerCreate(APIModel):
 
     @model_validator(mode="after")
     def _normalize_model(self) -> "PlayerCreate":
+        if not self.in_memoriam:
+            if not self.rut or not self.rut.strip():
+                raise ValueError("RUT es obligatorio")
+            if self.birth_date is None:
+                raise ValueError("Fecha de nacimiento es obligatoria")
+            if not self.phone or not str(self.phone).strip():
+                raise ValueError("Teléfono es obligatorio")
+            if not self.primary_series_id or not str(self.primary_series_id).strip():
+                raise ValueError("Serie principal es obligatoria")
+        else:
+            updates: dict = {}
+            if self.rut is None or (isinstance(self.rut, str) and not self.rut.strip()):
+                updates["rut"] = "11111111-1"
+            if self.birth_date is None:
+                updates["birth_date"] = date(1900, 1, 1)
+            if self.phone is None or (isinstance(self.phone, str) and not str(self.phone).strip()):
+                updates["phone"] = "00000000"
+            if updates:
+                self = self.model_copy(update=updates)
         positions = self.positions
         if not positions:
             positions = _normalize_positions_from_legacy(self.position_primary, self.position_secondary)
         if not positions:
-            raise ValueError("Debe indicar al menos una posición")
+            positions = [PlayerPosition.cm]
         level_stars = self.level_stars
         if level_stars is None:
             level_stars = _normalize_level_stars_from_legacy(self.level)
-        if self.positions == positions and self.level_stars == level_stars:
-            return self
         return self.model_copy(update={"positions": positions, "level_stars": level_stars})
 
 

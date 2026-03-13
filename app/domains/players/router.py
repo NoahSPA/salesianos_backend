@@ -237,13 +237,17 @@ async def players_list(active: bool | None = None, series_id: str | None = None,
 async def players_create(payload: PlayerCreate, actor=Depends(get_current_user)) -> PlayerOut:
     data = payload.model_dump()
     raw_primary = (data.get("primary_series_id") or "").strip()
-    if not raw_primary:
-        raise HTTPException(status_code=400, detail="Falta serie principal")
-    try:
-        data["primary_series_id"] = oid(raw_primary)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Serie principal inválida")
-    data["series_ids"] = [oid(x) for x in _ensure_primary_in_series(payload.primary_series_id, payload.series_ids)]
+    if raw_primary:
+        try:
+            data["primary_series_id"] = oid(raw_primary)
+            data["series_ids"] = [oid(x) for x in _ensure_primary_in_series(payload.primary_series_id, payload.series_ids)]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Serie principal inválida")
+    else:
+        if not payload.in_memoriam:
+            raise HTTPException(status_code=400, detail="Falta serie principal")
+        data["primary_series_id"] = None
+        data["series_ids"] = []
     # Dorsales de jugadores en memoria están bloqueados para otros
     if not payload.in_memoriam and payload.dorsal is not None:
         blocked = await get_blocked_dorsals()

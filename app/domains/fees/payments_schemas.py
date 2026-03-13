@@ -72,6 +72,38 @@ class PaymentOut(DocOut):
     updated_at: str | None = None
     player_name: str | None = None
     target_month: str | None = None
+    receipt_file_id: str | None = Field(default=None, description="ID del comprobante en GridFS")
+
+
+class PaymentSelfRegisterIn(APIModel):
+    """Registro de pago por jugador: identifica por RUT, sin lista de jugadores."""
+    rut: str = Field(min_length=7, max_length=15, description="RUT del jugador que paga")
+    payment_date: date | None = Field(default=None)
+    amount_total: int = Field(ge=1, le=1_000_000_000)
+    amount: int | None = Field(default=None, ge=1, le=1_000_000_000)
+    payment_method: str = Field(default="transfer", max_length=30)
+    reference_number: str | None = Field(default=None, max_length=100)
+    transfer_ref: str | None = Field(default=None, max_length=100)
+    notes: str | None = Field(default=None, max_length=500)
+    notes_player: str | None = Field(default=None, max_length=500)
+    target_month: str | None = Field(default=None, max_length=7, pattern=r"^\d{4}-\d{2}$")
+    currency: str = Field(default="CLP", max_length=10)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data: dict) -> dict:
+        if isinstance(data, dict):
+            at = data.get("amount_total") or data.get("amount")
+            if at is None:
+                raise ValueError("amount_total o amount es requerido")
+            data = {**data, "amount_total": int(at)}
+            if data.get("payment_date") is None:
+                data = {**data, "payment_date": date.today().isoformat()}
+            if data.get("reference_number") is None and data.get("transfer_ref"):
+                data = {**data, "reference_number": data.get("transfer_ref")}
+            if data.get("notes") is None and data.get("notes_player"):
+                data = {**data, "notes": data.get("notes_player")}
+        return data
 
 
 class PaymentValidateIn(APIModel):

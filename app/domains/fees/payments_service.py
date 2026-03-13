@@ -8,7 +8,8 @@ from app.core.dates import date_to_utc_datetime, next_year_month, parse_year_mon
 from app.core.enums import PaymentStatus
 from app.db.ids import oid
 from app.db.mongo import get_db, now_utc
-from app.domains.players.repo import get_player
+from app.core.validators import normalize_rut
+from app.domains.players.repo import get_player, get_player_by_rut
 from app.domains.fees.service import ensure_charges_up_to_current, generate_monthly_charges
 
 
@@ -77,6 +78,19 @@ async def create_payment(*, actor: dict, payload: dict) -> dict:
     return out
 
 
+async def create_self_register_payment(*, actor: dict, payload: dict) -> dict:
+    """Registro de pago por jugador: busca por RUT y crea pago pendiente de validación."""
+    rut = normalize_rut(payload.get("rut", ""))
+    player = await get_player_by_rut(rut)
+    if not player:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No existe un jugador activo con ese RUT",
+        )
+    payload_with_player = {**payload, "player_id": player["id"]}
+    return await create_payment(actor=actor, payload=payload_with_player)
+
+
 async def _allocations_for_payment(db, payment_id: str) -> list[dict]:
     """Devuelve las allocations de un pago (colección payment_allocations o legacy applied_to)."""
     pay = await db.payments.find_one({"_id": oid(payment_id)}, projection={"applied_to": 1, "_id": 0})
@@ -129,6 +143,7 @@ def _payment_to_out(d: dict, player_name: str | None = None) -> dict:
         d["updated_at"] = d["updated_at"].isoformat()
     if player_name is not None:
         d["player_name"] = player_name
+    d["receipt_file_id"] = str(d["receipt_file_id"]) if d.get("receipt_file_id") else None
     # allocations se rellenan después con _allocations_for_payment
     d["allocations"] = []
     # Quitar campos internos que PaymentOut no define (extra="forbid")

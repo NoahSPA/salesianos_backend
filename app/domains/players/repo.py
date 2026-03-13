@@ -15,7 +15,7 @@ from app.db.mongo import get_db, now_utc
 def _to_out(d: dict) -> dict:
     d = {**d}
     d["id"] = str(d.pop("_id"))
-    d["primary_series_id"] = str(d["primary_series_id"])
+    d["primary_series_id"] = str(d["primary_series_id"]) if d.get("primary_series_id") is not None else ""
     d["series_ids"] = [str(x) for x in d.get("series_ids", [])]
     if isinstance(d.get("birth_date"), datetime):
         d["birth_date"] = dt_to_date(d["birth_date"])
@@ -107,6 +107,13 @@ async def get_blocked_dorsals(*, exclude_player_id: str | None = None) -> set[in
 async def get_player(player_id: str) -> dict | None:
     db = get_db()
     d = await db.players.find_one({"_id": oid(player_id)})
+    return _to_out(d) if d else None
+
+
+async def get_player_by_rut(rut: str) -> dict | None:
+    """Busca jugador por RUT (normalizado). Solo activos."""
+    db = get_db()
+    d = await db.players.find_one({"rut": rut.strip(), "active": True})
     return _to_out(d) if d else None
 
 
