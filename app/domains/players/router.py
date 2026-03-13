@@ -12,7 +12,7 @@ from app.api.deps import get_current_user, require_roles
 from app.core.validators import normalize_rut
 from app.db.ids import oid
 from app.domains.audit.service import log_audit
-from app.domains.players.repo import create_player, get_player, list_players, update_player, upsert_by_rut
+from app.domains.players.repo import create_player, get_blocked_dorsals, get_player, list_players, update_player, upsert_by_rut
 from app.domains.players.schemas import PlayerCreate, PlayerImportResult, PlayerOut, PlayerUpdate
 from app.domains.series.repo import get_series, get_series_by_name
 from app.storage.gridfs import delete_avatar_file, get_avatar_file, upload_avatar
@@ -244,6 +244,14 @@ async def players_create(payload: PlayerCreate, actor=Depends(get_current_user))
     except ValueError:
         raise HTTPException(status_code=400, detail="Serie principal inválida")
     data["series_ids"] = [oid(x) for x in _ensure_primary_in_series(payload.primary_series_id, payload.series_ids)]
+    # Dorsales de jugadores en memoria están bloqueados para otros
+    if not payload.in_memoriam and payload.dorsal is not None:
+        blocked = await get_blocked_dorsals()
+        if payload.dorsal in blocked:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El dorsal {payload.dorsal} está reservado en memoria y no puede asignarse a otro jugador.",
+            )
     # Mongo solo acepta tipos simples: positions como list[str]
     data["positions"] = [p.value if hasattr(p, "value") else str(p) for p in (data.get("positions") or [])]
     data.pop("position_primary", None)
@@ -337,6 +345,16 @@ async def players_patch(player_id: str, payload: PlayerUpdate, actor=Depends(get
     patch.pop("position_primary", None)
     patch.pop("position_secondary", None)
     patch.pop("level", None)
+    # Dorsales de jugadores en memoria están bloqueados para otros
+    final_in_memoriam = patch.get("in_memoriam") if "in_memoriam" in patch else before.get("in_memoriam", False)
+    final_dorsal = patch.get("dorsal") if "dorsal" in patch else before.get("dorsal")
+    if not final_in_memoriam and final_dorsal is not None:
+        blocked = await get_blocked_dorsals(exclude_player_id=player_id)
+        if final_dorsal in blocked:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El dorsal {final_dorsal} está reservado en memoria y no puede asignarse a otro jugador.",
+            )
     after = await update_player(player_id, patch)
     await log_audit(
         actor=actor,

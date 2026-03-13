@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import date
-
 from pydantic import Field, field_validator, model_validator
 
 from app.core.schemas import APIModel, DocOut
 from app.core.enums import PlayerPosition
+
+TALLA_CHOICES: tuple[str, ...] = ("XS", "S", "M", "L", "XL", "XXL", "XXXL")
 from app.core.validators import normalize_rut
 
 # Códigos legacy/alias → código estándar (para input y para normalizar salida desde DB)
@@ -141,6 +142,9 @@ class PlayerCreate(APIModel):
     primary_series_id: str = Field(min_length=1, description="ID de la serie principal")
     series_ids: list[str] = Field(default_factory=list)
 
+    dorsal: int | None = Field(default=None, ge=1, le=99, description="Número de camiseta")
+    talla: str | None = Field(default=None, max_length=10, description="Talla de camiseta (XS, S, M, L, XL, XXL, XXXL)")
+
     # Nuevo modelo: posiciones múltiples + nivel 1..5
     positions: list[PlayerPosition] | None = None
     level_stars: int | None = Field(default=None, ge=1, le=5)
@@ -150,6 +154,7 @@ class PlayerCreate(APIModel):
     position_secondary: str | None = Field(default=None, max_length=20)
     level: str | None = Field(default=None, min_length=1, max_length=20)
     active: bool = True
+    in_memoriam: bool = Field(default=False, description="Jugador fallecido, en memoria")
     notes: str | None = Field(default=None, max_length=500)
     avatar_url: str | None = Field(default=None, max_length=500, description="URL de la foto del jugador")
 
@@ -157,6 +162,16 @@ class PlayerCreate(APIModel):
     @classmethod
     def _rut(cls, v: str) -> str:
         return normalize_rut(v)
+
+    @field_validator("talla")
+    @classmethod
+    def _talla(cls, v: str | None) -> str | None:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        s = v.strip().upper()
+        if s in TALLA_CHOICES:
+            return s
+        raise ValueError(f"Talla inválida: {v!r}. Usa: XS, S, M, L, XL, XXL, XXXL")
 
     @field_validator("positions", mode="before")
     @classmethod
@@ -205,6 +220,9 @@ class PlayerUpdate(APIModel):
     primary_series_id: str | None = None
     series_ids: list[str] | None = None
 
+    dorsal: int | None = Field(default=None, ge=1, le=99)
+    talla: str | None = Field(default=None, max_length=10)
+
     positions: list[PlayerPosition] | None = None
     level_stars: int | None = Field(default=None, ge=1, le=5)
 
@@ -213,6 +231,7 @@ class PlayerUpdate(APIModel):
     position_secondary: str | None = Field(default=None, max_length=20)
     level: str | None = Field(default=None, min_length=1, max_length=20)
     active: bool | None = None
+    in_memoriam: bool | None = None
     notes: str | None = Field(default=None, max_length=500)
     avatar_url: str | None = Field(default=None, max_length=500)
 
@@ -220,6 +239,16 @@ class PlayerUpdate(APIModel):
     @classmethod
     def _rut(cls, v: str | None) -> str | None:
         return normalize_rut(v) if v is not None else None
+
+    @field_validator("talla")
+    @classmethod
+    def _talla(cls, v: str | None) -> str | None:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        s = v.strip().upper()
+        if s in TALLA_CHOICES:
+            return s
+        raise ValueError(f"Talla inválida: {v!r}. Usa: XS, S, M, L, XL, XXL, XXXL")
 
     @field_validator("positions", mode="before")
     @classmethod
@@ -266,11 +295,15 @@ class PlayerOut(DocOut):
     positions: list[PlayerPosition]
     level_stars: int = Field(ge=1, le=5)
 
+    dorsal: int | None = Field(default=None, description="Número de camiseta")
+    talla: str | None = Field(default=None, description="Talla de camiseta (XS, S, M, L, XL, XXL, XXXL)")
+
     # Legacy (solo lectura): para UI antigua / compat
     position_primary: str | None = None
     position_secondary: str | None = None
     level: str | None = None
     active: bool
+    in_memoriam: bool = Field(default=False, description="Jugador fallecido, en memoria")
     notes: str | None = None
     avatar_url: str | None = None
     avatar_file_id: str | None = Field(default=None, description="ID del archivo en GridFS (avatar subido)")

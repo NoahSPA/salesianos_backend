@@ -51,6 +51,8 @@ def _to_out(d: dict) -> dict:
         d["second_last_name"] = None
     if "email" not in d:
         d["email"] = None
+    if "in_memoriam" not in d:
+        d["in_memoriam"] = False
     return d
 
 
@@ -84,6 +86,21 @@ async def list_players(*, active: bool | None = None, series_id: str | None = No
     out: list[dict] = []
     async for d in cur:
         out.append(_to_out(d))
+    return out
+
+
+async def get_blocked_dorsals(*, exclude_player_id: str | None = None) -> set[int]:
+    """Dorsales usados por jugadores en memoria. No pueden asignarse a otros jugadores."""
+    db = get_db()
+    flt: dict = {"in_memoriam": True, "dorsal": {"$exists": True, "$ne": None}}
+    if exclude_player_id:
+        flt["_id"] = {"$ne": oid(exclude_player_id)}
+    cur = db.players.find(flt, projection={"dorsal": 1})
+    out: set[int] = set()
+    async for d in cur:
+        dorsal = d.get("dorsal")
+        if isinstance(dorsal, int) and 1 <= dorsal <= 99:
+            out.add(dorsal)
     return out
 
 

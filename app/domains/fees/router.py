@@ -102,6 +102,43 @@ async def fees_summary_by_period(series_id: str | None = None) -> dict:
     }
 
 
+@router.get("/dashboard-totals", dependencies=[Depends(require_roles("admin", "tesorero", "delegado"))])
+async def fees_dashboard_totals(series_id: str | None = None) -> dict:
+    """Totales recaudado/pendiente para el dashboard. Carga independiente de períodos y breakdown."""
+    await ensure_charges_up_to_current()
+    await ensure_charges_for_tournament_periods()
+    today = date.today()
+    current_ym = f"{today.year:04d}-{today.month:02d}"
+    total_collected, total_pending = await get_fees_totals(current_year_month=current_ym, series_id=series_id)
+    return {"total_collected": total_collected, "total_pending": total_pending}
+
+
+@router.get("/dashboard-periods", dependencies=[Depends(require_roles("admin", "tesorero", "delegado"))])
+async def fees_dashboard_periods(series_id: str | None = None) -> dict:
+    """Resumen por período para el dashboard. Carga independiente de totales y breakdown."""
+    await ensure_charges_up_to_current()
+    await ensure_charges_for_tournament_periods()
+    today = date.today()
+    current_ym = f"{today.year:04d}-{today.month:02d}"
+    periods = await get_fees_summary_by_period(current_year_month=current_ym, series_id=series_id)
+    return {"periods": periods}
+
+
+@router.get("/dashboard-breakdown", dependencies=[Depends(require_roles("admin", "tesorero", "delegado"))])
+async def fees_dashboard_breakdown(series_id: str | None = None) -> dict:
+    """Desglose por serie/torneo/jugador para el dashboard. Carga independiente de totales y períodos."""
+    await ensure_charges_up_to_current()
+    await ensure_charges_for_tournament_periods()
+    today = date.today()
+    current_ym = f"{today.year:04d}-{today.month:02d}"
+    breakdown = await get_collection_breakdown(series_id=series_id, current_year_month=current_ym)
+    return {
+        "collection_by_series": breakdown["by_series"],
+        "collection_by_tournament": breakdown["by_tournament"],
+        "collection_by_player": breakdown["by_player"],
+    }
+
+
 @router.get("/unpaid-periods", dependencies=[Depends(require_roles("admin", "tesorero", "delegado"))])
 async def fees_unpaid_periods(tournament_id: str) -> dict:
     """Periodos (meses) no pagados por jugador para un torneo con período de cuotas definido."""
