@@ -233,7 +233,7 @@ async def players_list(active: bool | None = None, series_id: str | None = None,
     return [PlayerOut(**d) for d in docs]
 
 
-@router.post("", response_model=PlayerOut, dependencies=[Depends(require_roles("admin"))])
+@router.post("", response_model=PlayerOut, dependencies=[Depends(require_roles("admin", "delegado"))])
 async def players_create(payload: PlayerCreate, actor=Depends(get_current_user)) -> PlayerOut:
     data = payload.model_dump()
     raw_primary = (data.get("primary_series_id") or "").strip()
@@ -296,7 +296,7 @@ async def players_get_avatar(player_id: str) -> Response:
     return Response(content=data, media_type=content_type)
 
 
-@router.post("/{player_id}/avatar", response_model=PlayerOut, dependencies=[Depends(require_roles("admin"))])
+@router.post("/{player_id}/avatar", response_model=PlayerOut, dependencies=[Depends(require_roles("admin", "delegado"))])
 async def players_upload_avatar(
     player_id: str,
     actor=Depends(get_current_user),
@@ -336,7 +336,7 @@ async def players_upload_avatar(
     return PlayerOut(**out)
 
 
-@router.patch("/{player_id}", response_model=PlayerOut, dependencies=[Depends(require_roles("admin"))])
+@router.patch("/{player_id}", response_model=PlayerOut, dependencies=[Depends(require_roles("admin", "delegado"))])
 async def players_patch(player_id: str, payload: PlayerUpdate, actor=Depends(get_current_user)) -> PlayerOut:
     before = await get_player(player_id)
     if not before:
@@ -371,7 +371,7 @@ async def players_patch(player_id: str, payload: PlayerUpdate, actor=Depends(get
     return PlayerOut(**after)
 
 
-@router.post("/import-csv", response_model=PlayerImportResult, dependencies=[Depends(require_roles("admin"))])
+@router.post("/import-csv", response_model=PlayerImportResult, dependencies=[Depends(require_roles("admin", "delegado"))])
 async def players_import_csv(
     actor=Depends(get_current_user),
     file: UploadFile = File(...),
@@ -405,7 +405,7 @@ async def players_import_csv(
     return PlayerImportResult(inserted=inserted, updated=updated, skipped=skipped, errors=errors)
 
 
-@router.post("/import-excel", response_model=PlayerImportResult, dependencies=[Depends(require_roles("admin"))])
+@router.post("/import-excel", response_model=PlayerImportResult, dependencies=[Depends(require_roles("admin", "delegado"))])
 async def players_import_excel(
     actor=Depends(get_current_user),
     series_id: str = Form(..., description="ID de la serie a la que pertenecen los jugadores de la nómina"),
