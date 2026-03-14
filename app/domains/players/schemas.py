@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from pydantic import Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from app.core.schemas import APIModel, DocOut
 from app.core.enums import PlayerPosition
@@ -301,6 +301,9 @@ class PlayerUpdate(APIModel):
 
 
 class PlayerOut(DocOut):
+    """Schema de salida de jugador. Ignora campos extra del documento para evitar extra_forbidden."""
+    model_config = ConfigDict(extra="ignore")
+
     first_name: str
     second_first_name: str | None = None
     last_name: str
