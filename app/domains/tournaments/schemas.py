@@ -49,7 +49,8 @@ class TournamentCreate(APIModel):
     start_month: str | None = Field(default=None, pattern=_year_month_pattern(), description="Mes inicio período cuotas (YYYY-MM)")
     end_month: str | None = Field(default=None, pattern=_year_month_pattern(), description="Mes término período cuotas (YYYY-MM)")
     active: bool = True
-    series_ids: list[str] = Field(default_factory=list)
+    series_ids: list[str] = Field(default_factory=list, description="Series que participan en el torneo")
+    player_ids: list[str] = Field(default_factory=list, description="Lista de jugadores del plantel (si vacía, se consideran todos los de las series)")
     location: TournamentLocation | None = None
 
 
@@ -64,6 +65,7 @@ class TournamentUpdate(APIModel):
     end_month: str | None = Field(default=None, pattern=_year_month_pattern())
     active: bool | None = None
     series_ids: list[str] | None = None
+    player_ids: list[str] | None = None
     location: TournamentLocation | None = None
 
 
@@ -78,5 +80,6 @@ class TournamentOut(DocOut):
     end_month: str | None = None
     active: bool
     series_ids: list[str]
+    player_ids: list[str] = Field(default_factory=list)
     location: TournamentLocation | None = None
 

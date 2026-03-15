@@ -16,6 +16,7 @@ class FeeRuleScope(APIModel):
 class FeeRuleCreate(APIModel):
     scope: str = Field(pattern="^(general|series|player)$")
     scope_id: str | None = None
+    tournament_id: str = Field(description="Torneo al que aplica la regla")
     amount: int = Field(ge=0, le=10_000_000, description="Monto mensual en pesos CLP")
     currency: str = Field(default="CLP", max_length=10)
     active: bool = True
@@ -24,6 +25,7 @@ class FeeRuleCreate(APIModel):
 
 
 class FeeRuleUpdate(APIModel):
+    tournament_id: str | None = None
     amount: int | None = Field(default=None, ge=0, le=10_000_000)
     currency: str | None = Field(default=None, max_length=10)
     active: bool | None = None
@@ -34,6 +36,7 @@ class FeeRuleUpdate(APIModel):
 class FeeRuleOut(DocOut):
     scope: str
     scope_id: str | None = None
+    tournament_id: str | None = None
     amount: int
     currency: str
     active: bool

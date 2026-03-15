@@ -21,6 +21,7 @@ async def tournaments_list(active: bool | None = None, season_year: int | None =
 async def tournaments_create(payload: TournamentCreate, actor=Depends(get_current_user)) -> TournamentOut:
     doc = payload.model_dump()
     doc["series_ids"] = [oid(x) for x in doc.get("series_ids", [])]
+    doc["player_ids"] = [oid(x) for x in doc.get("player_ids", [])]
     created = await create_tournament(doc)
     out = await get_tournament(str(created["_id"]))
     await log_audit(

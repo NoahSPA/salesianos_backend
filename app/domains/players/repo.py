@@ -67,12 +67,23 @@ async def create_player(doc: dict) -> dict:
     return _to_out(created)
 
 
-async def list_players(*, active: bool | None = None, series_id: str | None = None, q: str | None = None) -> list[dict]:
+async def list_players(
+    *,
+    active: bool | None = None,
+    series_id: str | None = None,
+    primary_series_ids: list[str] | None = None,
+    player_ids: list[str] | None = None,
+    q: str | None = None,
+) -> list[dict]:
     db = get_db()
     flt: dict = {}
     if active is not None:
         flt["active"] = active
-    if series_id is not None:
+    if player_ids and len(player_ids) > 0:
+        flt["_id"] = {"$in": [oid(p) for p in player_ids]}
+    elif primary_series_ids and len(primary_series_ids) > 0:
+        flt["primary_series_id"] = {"$in": [oid(s) for s in primary_series_ids]}
+    elif series_id is not None:
         flt["series_ids"] = oid(series_id)
     if q:
         qn = q.strip().lower()

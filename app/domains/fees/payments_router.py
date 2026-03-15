@@ -27,8 +27,18 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 
 
 @router.get("", response_model=list[PaymentOut], dependencies=[Depends(require_roles("admin", "tesorero"))])
-async def payments_list(status: str | None = None, limit: int = 100) -> list[PaymentOut]:
-    docs = await list_payments(status_filter=status, limit=min(max(limit, 1), 200))
+async def payments_list(
+    status: str | None = None,
+    series_id: str | None = None,
+    tournament_id: str | None = None,
+    limit: int = 100,
+) -> list[PaymentOut]:
+    docs = await list_payments(
+        status_filter=status,
+        series_id=series_id,
+        tournament_id=tournament_id,
+        limit=min(max(limit, 1), 500),
+    )
     return [PaymentOut(**d) for d in docs]
 
 
@@ -115,11 +125,15 @@ async def payments_upload_receipt(
     )
     from app.domains.fees.payments_service import _allocations_for_payment, _payment_to_out
     from app.domains.players.repo import get_player
+    from app.domains.tournaments.repo import get_tournament
 
     saved = await db.payments.find_one({"_id": oid(payment_id)})
     player = await get_player(str(saved["player_id"]))
     name = f"{player['first_name']} {player['last_name']}" if player else None
-    out = _payment_to_out(saved, player_name=name)
+    tid = saved.get("tournament_id")
+    t = await get_tournament(str(tid)) if tid else None
+    tname = t.get("name") if t else None
+    out = _payment_to_out(saved, player_name=name, tournament_name=tname)
     out["allocations"] = await _allocations_for_payment(db, payment_id)
     return PaymentOut(**out)
 

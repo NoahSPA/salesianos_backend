@@ -26,6 +26,7 @@ from app.domains.convocations.schemas import (
     PublicConvocationInfo,
 )
 from app.domains.matches.repo import get_match
+from app.domains.tournaments.repo import get_tournament
 from app.domains.players.repo import get_player
 from app.domains.series.repo import get_series
 
@@ -171,6 +172,10 @@ async def public_convocation_info(public_link_id: str) -> PublicConvocationInfo:
     if not match or not series:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No encontrado")
 
+    tournament = None
+    if match.get("tournament_id"):
+        tournament = await get_tournament(match["tournament_id"])
+
     return PublicConvocationInfo(
         public_link_id=public_link_id,
         series_name=series["name"],
@@ -179,6 +184,8 @@ async def public_convocation_info(public_link_id: str) -> PublicConvocationInfo:
         call_time=match["call_time"],
         venue=match["venue"],
         field_number=match.get("field_number"),
+        tournament_name=tournament["name"] if tournament else None,
+        tournament_season_year=tournament.get("season_year") if tournament else None,
     )
 
 

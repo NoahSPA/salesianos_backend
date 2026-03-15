@@ -31,6 +31,7 @@ async def list_tournaments(*, active: bool | None = None, season_year: int | Non
     async for d in cur:
         d["id"] = str(d.pop("_id"))
         d["series_ids"] = [str(x) for x in d.get("series_ids", [])]
+        d["player_ids"] = [str(x) for x in d.get("player_ids", [])]
         if isinstance(d.get("start_date"), datetime):
             d["start_date"] = dt_to_date(d["start_date"])
         if isinstance(d.get("end_date"), datetime):
@@ -46,6 +47,7 @@ async def get_tournament(tournament_id: str) -> dict | None:
         return None
     d["id"] = str(d.pop("_id"))
     d["series_ids"] = [str(x) for x in d.get("series_ids", [])]
+    d["player_ids"] = [str(x) for x in d.get("player_ids", [])]
     if isinstance(d.get("start_date"), datetime):
         d["start_date"] = dt_to_date(d["start_date"])
     if isinstance(d.get("end_date"), datetime):
@@ -59,6 +61,8 @@ async def update_tournament(tournament_id: str, patch: dict) -> dict | None:
         return await get_tournament(tournament_id)
     if "series_ids" in patch and patch["series_ids"] is not None:
         patch["series_ids"] = [oid(x) for x in patch["series_ids"]]
+    if "player_ids" in patch and patch["player_ids"] is not None:
+        patch["player_ids"] = [oid(x) for x in patch["player_ids"]]
     for k in ("start_date", "end_date"):
         if isinstance(patch.get(k), date) and not isinstance(patch.get(k), datetime):
             patch[k] = date_to_utc_datetime(patch[k])

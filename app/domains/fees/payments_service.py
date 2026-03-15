@@ -10,6 +10,8 @@ from app.db.ids import oid
 from app.db.mongo import get_db, now_utc
 from app.core.validators import normalize_rut
 from app.domains.players.repo import get_player, get_player_by_rut
+from app.domains.series.repo import get_series
+from app.domains.tournaments.repo import get_tournament
 from app.domains.fees.service import ensure_charges_up_to_current, generate_monthly_charges
 
 
@@ -37,6 +39,7 @@ def _payment_doc_create(payload: dict, actor: dict, now) -> dict:
         "treasurer_user_id": None,
         "notes_treasurer": None,
         "target_month": payload.get("target_month"),
+        "tournament_id": oid(payload["tournament_id"]) if payload.get("tournament_id") else None,
         "allocations_requested": None,
         "created_at": now,
         "updated_at": now,
@@ -73,7 +76,10 @@ async def create_payment(*, actor: dict, payload: dict) -> dict:
     saved = await db.payments.find_one({"_id": res.inserted_id})
     player = await get_player(str(saved["player_id"]))
     name = f"{player['first_name']} {player['last_name']}" if player else None
-    out = _payment_to_out(saved, player_name=name)
+    tid = saved.get("tournament_id")
+    t = await get_tournament(str(tid)) if tid else None
+    tname = t.get("name") if t else None
+    out = _payment_to_out(saved, player_name=name, tournament_name=tname)
     out["allocations"] = []
     return out
 
@@ -122,7 +128,13 @@ async def _allocations_for_payment(db, payment_id: str) -> list[dict]:
     return out
 
 
-def _payment_to_out(d: dict, player_name: str | None = None) -> dict:
+def _payment_to_out(
+    d: dict,
+    player_name: str | None = None,
+    tournament_name: str | None = None,
+    series_id: str | None = None,
+    series_name: str | None = None,
+) -> dict:
     d = {**d}
     d["id"] = str(d.pop("_id"))
     d["player_id"] = str(d["player_id"])
@@ -143,6 +155,14 @@ def _payment_to_out(d: dict, player_name: str | None = None) -> dict:
         d["updated_at"] = d["updated_at"].isoformat()
     if player_name is not None:
         d["player_name"] = player_name
+    if d.get("tournament_id"):
+        d["tournament_id"] = str(d["tournament_id"])
+    if tournament_name is not None:
+        d["tournament_name"] = tournament_name
+    if series_id is not None:
+        d["series_id"] = series_id
+    if series_name is not None:
+        d["series_name"] = series_name
     d["receipt_file_id"] = str(d["receipt_file_id"]) if d.get("receipt_file_id") else None
     # allocations se rellenan después con _allocations_for_payment
     d["allocations"] = []
@@ -155,17 +175,36 @@ def _payment_to_out(d: dict, player_name: str | None = None) -> dict:
     return d
 
 
-async def list_payments(*, status_filter: str | None = None, limit: int = 100) -> list[dict]:
+async def list_payments(
+    *,
+    status_filter: str | None = None,
+    series_id: str | None = None,
+    tournament_id: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
     db = get_db()
     q: dict[str, Any] = {}
     if status_filter:
         q["status"] = status_filter
-    cur = db.payments.find(q).sort("created_at", -1).limit(limit)
+    if tournament_id:
+        q["tournament_id"] = oid(tournament_id)
+    if series_id:
+        player_ids = await db.players.find({"primary_series_id": oid(series_id)}, projection={"_id": 1}).distinct("_id")
+        if not player_ids:
+            return []
+        q["player_id"] = {"$in": player_ids}
+    cur = db.payments.find(q).sort("created_at", -1).limit(min(max(limit, 1), 500))
     out: list[dict] = []
     async for d in cur:
         player = await get_player(str(d["player_id"]))
         name = f"{player['first_name']} {player['last_name']}" if player else None
-        row = _payment_to_out(d, player_name=name)
+        tid = d.get("tournament_id")
+        t = await get_tournament(str(tid)) if tid else None
+        tname = t.get("name") if t else None
+        sid = str(player["primary_series_id"]) if player and player.get("primary_series_id") is not None else None
+        s = await get_series(sid) if sid else None
+        sname = s.get("name") if s else None
+        row = _payment_to_out(d, player_name=name, tournament_name=tname, series_id=sid, series_name=sname)
         row["allocations"] = await _allocations_for_payment(db, row["id"])
         out.append(row)
     return out
@@ -350,7 +389,10 @@ async def validate_payment(*, actor: dict, payment_id: str, notes_treasurer: str
     saved = await db.payments.find_one({"_id": oid(payment_id)})
     player = await get_player(str(saved["player_id"]))
     name = f"{player['first_name']} {player['last_name']}" if player else None
-    out = _payment_to_out(saved, player_name=name)
+    tid = saved.get("tournament_id")
+    t = await get_tournament(str(tid)) if tid else None
+    tname = t.get("name") if t else None
+    out = _payment_to_out(saved, player_name=name, tournament_name=tname)
     out["allocations"] = await _allocations_for_payment(db, payment_id)
     return out
 
@@ -378,6 +420,9 @@ async def reject_payment(*, actor: dict, payment_id: str, notes_treasurer: str |
     saved = await db.payments.find_one({"_id": oid(payment_id)})
     player = await get_player(str(saved["player_id"]))
     name = f"{player['first_name']} {player['last_name']}" if player else None
-    out = _payment_to_out(saved, player_name=name)
+    tid = saved.get("tournament_id")
+    t = await get_tournament(str(tid)) if tid else None
+    tname = t.get("name") if t else None
+    out = _payment_to_out(saved, player_name=name, tournament_name=tname)
     out["allocations"] = await _allocations_for_payment(db, payment_id)
     return out

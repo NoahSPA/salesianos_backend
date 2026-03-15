@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from app.api.router import api_router
 from app.core.http import SecurityHeadersMiddleware
 from app.core.settings import settings
+from app.core.treasury_logger import TreasuryRequestLogMiddleware
 from app.db.indexes import ensure_indexes
 from app.db.mongo import close_client, get_db
 
@@ -36,6 +37,7 @@ if settings.cors_origin_list:
     )
 
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(TreasuryRequestLogMiddleware)
 
 
 @app.exception_handler(ValueError)

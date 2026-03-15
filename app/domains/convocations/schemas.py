@@ -62,4 +62,6 @@ class PublicConvocationInfo(APIModel):
     call_time: str
     venue: str
     field_number: str | None = None
+    tournament_name: str | None = None
+    tournament_season_year: int | None = None
 

@@ -26,6 +26,7 @@ class PaymentCreate(APIModel):
     notes: str | None = Field(default=None, max_length=500)
     notes_player: str | None = Field(default=None, max_length=500, description="Alias de notes (compat)")
     target_month: str | None = Field(default=None, max_length=7, description="YYYY-MM; usado si no se envían allocations")
+    tournament_id: str | None = Field(default=None, description="Torneo al que corresponde el pago")
     allocations: list[PaymentAllocationItem] | None = Field(default=None, description="Asignación explícita a cargos (opcional)")
     currency: str = Field(default="CLP", max_length=10, description="Moneda (p. ej. CLP)")
 
@@ -72,6 +73,10 @@ class PaymentOut(DocOut):
     updated_at: str | None = None
     player_name: str | None = None
     target_month: str | None = None
+    tournament_id: str | None = None
+    tournament_name: str | None = None
+    series_id: str | None = None
+    series_name: str | None = None
     receipt_file_id: str | None = Field(default=None, description="ID del comprobante en GridFS")
 
 

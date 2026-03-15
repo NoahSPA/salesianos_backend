@@ -13,6 +13,8 @@ def _rule_to_out(d: dict) -> dict:
     d["id"] = str(d.pop("_id"))
     if d.get("scope_id") is not None:
         d["scope_id"] = str(d["scope_id"])
+    if d.get("tournament_id") is not None:
+        d["tournament_id"] = str(d["tournament_id"])
     if isinstance(d.get("effective_from"), datetime):
         d["effective_from"] = dt_to_date(d["effective_from"])
     if isinstance(d.get("effective_to"), datetime):
@@ -53,13 +55,21 @@ async def create_fee_rule(doc: dict) -> dict:
     return _rule_to_out(created)
 
 
-async def list_fee_rules(*, scope: str | None = None, scope_id: str | None = None, active: bool | None = None) -> list[dict]:
+async def list_fee_rules(
+    *,
+    scope: str | None = None,
+    scope_id: str | None = None,
+    tournament_id: str | None = None,
+    active: bool | None = None,
+) -> list[dict]:
     db = get_db()
     q: dict = {}
     if scope:
         q["scope"] = scope
     if scope_id is not None:
         q["scope_id"] = None if scope == "general" else oid(scope_id)
+    if tournament_id:
+        q["tournament_id"] = oid(tournament_id)
     if active is not None:
         q["active"] = active
     cur = db.fee_rules.find(q).sort([("scope", 1), ("effective_from", -1)])
@@ -91,6 +101,28 @@ async def delete_fee_rule(rule_id: str) -> bool:
     db = get_db()
     res = await db.fee_rules.delete_one({"_id": oid(rule_id)})
     return res.deleted_count > 0
+
+
+async def _raw_fee_rules(
+    scope: str | None = None,
+    scope_id: str | None = None,
+    tournament_id: str | None = None,
+    exclude_rule_id: str | None = None,
+) -> list[dict]:
+    """Reglas en crudo (para validación). Filtra por torneo cuando se indica."""
+    db = get_db()
+    q: dict = {}
+    if scope:
+        q["scope"] = scope
+        if scope == "general":
+            q["scope_id"] = None
+        elif scope_id:
+            q["scope_id"] = oid(scope_id)
+    if tournament_id:
+        q["tournament_id"] = oid(tournament_id)
+    if exclude_rule_id:
+        q["_id"] = {"$ne": oid(exclude_rule_id)}
+    return await db.fee_rules.find(q).to_list(length=1000)
 
 
 async def list_charges_for_player(*, player_id: str) -> list[dict]:
@@ -144,44 +176,62 @@ async def get_players_contribution(*, player_ids: list[str]) -> dict[str, dict]:
     return result
 
 
-async def get_collection_breakdown(series_id: str | None = None, current_year_month: str | None = None) -> dict:
+async def get_collection_breakdown(
+    series_id: str | None = None,
+    current_year_month: str | None = None,
+    tournament_filter: dict | None = None,
+    *,
+    request_series_id: str | None = None,
+) -> dict:
     """
     Recaudación desglosada por serie, torneo y jugador.
-    Usa suma de 'paid' en monthly_charges (valor aplicado a cuotas).
-    total_pending por serie: saldo pendiente (amount - paid) en cargos con year_month <= current_year_month.
-    Si series_id está definido, solo incluye esa serie y torneos/jugadores de esa serie.
+    Si tournament_filter, filtra por series_ids y rango year_month del torneo.
     """
     db = get_db()
-    # Por serie: monthly_charges $lookup players -> group by primary_series_id
-    pipeline_series = [
+    sid, sids, pids, ym_start, ym_end = _resolve_filter(series_id, tournament_filter)
+    ym_upper = min(ym_end, current_year_month) if (ym_end and current_year_month) else current_year_month
+    ym_match_series: dict | None = None
+    if ym_start and ym_end and current_year_month:
+        ym_match_series = {"$gte": ym_start, "$lte": ym_upper or current_year_month}
+
+    # Un solo pipeline por serie: total_collected y total_pending en la misma agregación para evitar cruce de montos
+    if ym_match_series:
+        ym_filter = ym_match_series
+    elif current_year_month and ym_start and ym_end:
+        ym_filter = {"$gte": ym_start, "$lte": min(ym_end, current_year_month)}
+    elif current_year_month:
+        ym_filter = {"$lte": current_year_month}
+    else:
+        ym_filter = None
+
+    pipeline_series: list[dict] = []
+    if ym_filter:
+        pipeline_series.append({"$match": {"year_month": ym_filter}})
+    if pids:
+        pipeline_series.append({"$match": {"player_id": {"$in": [oid(p) for p in pids]}}})
+    pipeline_series.extend([
         {"$lookup": {"from": "players", "localField": "player_id", "foreignField": "_id", "as": "pl"}},
         {"$unwind": {"path": "$pl", "preserveNullAndEmptyArrays": False}},
-    ]
-    if series_id:
-        pipeline_series.append({"$match": {"pl.primary_series_id": oid(series_id)}})
-    pipeline_series.append({"$group": {"_id": "$pl.primary_series_id", "total_collected": {"$sum": {"$ifNull": ["$paid", 0]}}}})
+    ])
+    if sids:
+        pipeline_series.append({"$match": {"pl.primary_series_id": {"$in": [oid(s) for s in sids]}}})
+    elif sid:
+        pipeline_series.append({"$match": {"pl.primary_series_id": oid(sid)}})
+    pipeline_series.append({
+        "$group": {
+            "_id": "$pl.primary_series_id",
+            "total_collected": {"$sum": {"$ifNull": ["$paid", 0]}},
+            "total_pending": {"$sum": {"$max": [0, {"$subtract": ["$amount", {"$ifNull": ["$paid", 0]}]}]}},
+        }
+    })
     by_series_raw: list[dict] = []
     async for doc in db.monthly_charges.aggregate(pipeline_series):
-        by_series_raw.append({"series_id": str(doc["_id"]), "total_collected": int(doc.get("total_collected", 0))})
-
-    # Pendiente por serie (cargos con year_month <= current_year_month, saldo amount - paid)
-    pending_by_series: dict[str, int] = {}
-    if current_year_month:
-        pipeline_pending = [
-            {"$match": {"year_month": {"$lte": current_year_month}}},
-            {"$lookup": {"from": "players", "localField": "player_id", "foreignField": "_id", "as": "pl"}},
-            {"$unwind": {"path": "$pl", "preserveNullAndEmptyArrays": False}},
-        ]
-        if series_id:
-            pipeline_pending.append({"$match": {"pl.primary_series_id": oid(series_id)}})
-        pipeline_pending.append({
-            "$group": {
-                "_id": "$pl.primary_series_id",
-                "total_pending": {"$sum": {"$max": [0, {"$subtract": ["$amount", {"$ifNull": ["$paid", 0]}]}]}},
-            }
+        series_id_str = str(doc["_id"])
+        by_series_raw.append({
+            "series_id": series_id_str,
+            "total_collected": int(doc.get("total_collected", 0)),
+            "total_pending": int(doc.get("total_pending", 0)),
         })
-        async for doc in db.monthly_charges.aggregate(pipeline_pending):
-            pending_by_series[str(doc["_id"])] = int(doc.get("total_pending", 0))
 
     # Nombres de series
     series_ids = [d["series_id"] for d in by_series_raw]
@@ -195,41 +245,67 @@ async def get_collection_breakdown(series_id: str | None = None, current_year_mo
             "series_id": d["series_id"],
             "series_name": series_names.get(d["series_id"], d["series_id"]),
             "total_collected": d["total_collected"],
-            "total_pending": pending_by_series.get(d["series_id"], 0),
+            "total_pending": d["total_pending"],
         }
         for d in by_series_raw
     ]
     by_series.sort(key=lambda x: (-x["total_collected"], x["series_name"]))
 
-    # Por torneo: total_collected por series; total_expected/total_pending con mes inicio/termino si existen
+    # Por torneo: total_collected desde payments (tienen tournament_id); total_expected/total_pending desde charges
     from app.domains.tournaments.repo import list_tournaments
     tournaments = await list_tournaments(active=None)
-    series_to_total = {d["series_id"]: d["total_collected"] for d in by_series_raw}
+    # Recaudado por torneo desde pagos validados
+    pay_pipeline: list[dict] = [
+        {"$match": {"status": {"$in": [PaymentStatus.confirmed.value, "validated"]}, "tournament_id": {"$ne": None, "$exists": True}}},
+    ]
+    if pids:
+        pay_pipeline.append({"$match": {"player_id": {"$in": [oid(p) for p in pids]}}})
+    elif sid or sids:
+        pay_pipeline.extend([
+            {"$lookup": {"from": "players", "localField": "player_id", "foreignField": "_id", "as": "_pl"}},
+            {"$unwind": {"path": "$_pl", "preserveNullAndEmptyArrays": False}},
+            {"$match": {"_pl.primary_series_id": oid(sid) if sid else {"$in": [oid(s) for s in sids]}}},
+        ])
+    pay_pipeline.append({
+        "$group": {"_id": "$tournament_id", "total_collected": {"$sum": {"$ifNull": ["$amount_total", "$amount"]}}},
+    })
+    collected_by_tid: dict[str, int] = {}
+    async for doc in db.payments.aggregate(pay_pipeline):
+        collected_by_tid[str(doc["_id"])] = int(doc.get("total_collected", 0))
+
+    # Serie del filtro: solo torneos que la incluyen
+    filter_series = request_series_id or sid
     by_tournament = []
     for t in tournaments:
-        sids = t.get("series_ids") or []
-        if series_id and series_id not in sids:
+        t_sids = [str(x) for x in (t.get("series_ids") or [])]
+        t_pids = [str(x) for x in (t.get("player_ids") or [])]
+        if filter_series and filter_series not in t_sids:
+            continue
+        if sids and not filter_series and not any(s in t_sids for s in sids):
             continue
         tid = t.get("id") or str(t.get("_id", ""))
-        total = series_to_total.get(series_id, 0) if series_id else sum(series_to_total.get(sid, 0) for sid in sids)
+        total = collected_by_tid.get(tid, 0)
         start_month = t.get("start_month")
         end_month = t.get("end_month")
         total_expected = total_pending_period = 0
-        if start_month and end_month and start_month <= end_month and sids:
-            sids_oids = [oid(s) for s in (sids if not series_id else [series_id])]
-            pipeline = [
-                {"$match": {"year_month": {"$gte": start_month, "$lte": end_month}}},
-                {"$lookup": {"from": "players", "localField": "player_id", "foreignField": "_id", "as": "pl"}},
-                {"$unwind": {"path": "$pl", "preserveNullAndEmptyArrays": False}},
-                {"$match": {"pl.primary_series_id": {"$in": sids_oids}}},
-                {
-                    "$group": {
-                        "_id": None,
-                        "total_expected": {"$sum": "$amount"},
-                        "total_pending_period": {"$sum": {"$max": [0, {"$subtract": ["$amount", {"$ifNull": ["$paid", 0]}]}]}},
-                    }
-                },
-            ]
+        if start_month and end_month and start_month <= end_month and (t_sids or t_pids):
+            pipeline = [{"$match": {"year_month": {"$gte": start_month, "$lte": end_month}}}]
+            if t_pids:
+                pipeline.append({"$match": {"player_id": {"$in": [oid(p) for p in t_pids]}}})
+            else:
+                sids_oids = [oid(s) for s in (sids if sids else [sid] if sid else t_sids)]
+                pipeline.extend([
+                    {"$lookup": {"from": "players", "localField": "player_id", "foreignField": "_id", "as": "pl"}},
+                    {"$unwind": {"path": "$pl", "preserveNullAndEmptyArrays": False}},
+                    {"$match": {"pl.primary_series_id": {"$in": sids_oids}}},
+                ])
+            pipeline.append({
+                "$group": {
+                    "_id": None,
+                    "total_expected": {"$sum": "$amount"},
+                    "total_pending_period": {"$sum": {"$max": [0, {"$subtract": ["$amount", {"$ifNull": ["$paid", 0]}]}]}},
+                }
+            })
             res = await db.monthly_charges.aggregate(pipeline).to_list(length=1)
             if res:
                 total_expected = int(res[0].get("total_expected", 0))
@@ -243,13 +319,21 @@ async def get_collection_breakdown(series_id: str | None = None, current_year_mo
         })
     by_tournament.sort(key=lambda x: (-x["total_collected"], x["tournament_name"]))
 
-    # Por jugador: group by player_id, sum paid; lookup player name (opcionalmente solo de series_id)
-    pipeline_player = []
-    if series_id:
+    # Por jugador: group by player_id, sum paid; lookup player name
+    pipeline_player: list[dict] = []
+    if ym_match_series:
+        pipeline_player.append({"$match": {"year_month": ym_match_series}})
+    if sids:
         pipeline_player.extend([
             {"$lookup": {"from": "players", "localField": "player_id", "foreignField": "_id", "as": "pl"}},
             {"$unwind": {"path": "$pl", "preserveNullAndEmptyArrays": False}},
-            {"$match": {"pl.primary_series_id": oid(series_id)}},
+            {"$match": {"pl.primary_series_id": {"$in": [oid(s) for s in sids]}}},
+        ])
+    elif sid:
+        pipeline_player.extend([
+            {"$lookup": {"from": "players", "localField": "player_id", "foreignField": "_id", "as": "pl"}},
+            {"$unwind": {"path": "$pl", "preserveNullAndEmptyArrays": False}},
+            {"$match": {"pl.primary_series_id": oid(sid)}},
         ])
     pipeline_player.extend([
         {"$group": {"_id": "$player_id", "total_collected": {"$sum": {"$ifNull": ["$paid", 0]}}}},
@@ -259,7 +343,7 @@ async def get_collection_breakdown(series_id: str | None = None, current_year_mo
             "$project": {
                 "_id": 0,
                 "player_id": {"$toString": "$_id"},
-                "total_collected": 1,
+                "total_collected": {"$add": ["$total_collected", {"$ifNull": ["$pl.credit_balance", 0]}]},
                 "player_name": {"$concat": [{"$ifNull": ["$pl.first_name", ""]}, " ", {"$ifNull": ["$pl.last_name", ""]}]},
             }
         },
@@ -276,8 +360,23 @@ async def get_collection_breakdown(series_id: str | None = None, current_year_mo
     return {"by_series": by_series, "by_tournament": by_tournament, "by_player": by_player}
 
 
-def _series_match_stage(series_id: str | None):
-    """Si series_id está definido, retorna [$lookup players, $unwind, $match primary_series_id]. Si no, []."""
+def _player_ids_match_stage(player_ids: list[str] | None) -> list[dict]:
+    """Si player_ids está definido, retorna [$match player_id in list]. Si no, []."""
+    if not player_ids:
+        return []
+    return [{"$match": {"player_id": {"$in": [oid(p) for p in player_ids]}}}]
+
+
+def _series_match_stage(series_id: str | None, series_ids: list[str] | None = None, player_ids: list[str] | None = None):
+    """Si player_ids está definido, retorna match por player_id. Si series_ids/series_id, retorna [$lookup, $unwind, $match]. Si no, []."""
+    if player_ids and len(player_ids) > 0:
+        return _player_ids_match_stage(player_ids)
+    if series_ids and len(series_ids) > 0:
+        return [
+            {"$lookup": {"from": "players", "localField": "player_id", "foreignField": "_id", "as": "_pl"}},
+            {"$unwind": {"path": "$_pl", "preserveNullAndEmptyArrays": False}},
+            {"$match": {"_pl.primary_series_id": {"$in": [oid(s) for s in series_ids]}}},
+        ]
     if not series_id:
         return []
     return [
@@ -287,30 +386,58 @@ def _series_match_stage(series_id: str | None):
     ]
 
 
-async def get_fees_totals(*, current_year_month: str, series_id: str | None = None) -> tuple[int, int]:
+def _resolve_filter(
+    series_id: str | None,
+    tournament_filter: dict | None,
+) -> tuple[str | None, list[str] | None, list[str] | None, str | None, str | None]:
+    """
+    Retorna (series_id, series_ids, player_ids, year_month_start, year_month_end).
+    Si tournament_filter tiene player_ids, se usa el plantel; si no, series_ids.
+    """
+    if tournament_filter:
+        pids = tournament_filter.get("player_ids") or []
+        sids = tournament_filter.get("series_ids") or []
+        start = tournament_filter.get("start_month")
+        end = tournament_filter.get("end_month")
+        return (None, sids if sids else None, pids if pids else None, start, end)
+    return (series_id, None, None, None, None)
+
+
+async def get_fees_totals(
+    *,
+    current_year_month: str,
+    series_id: str | None = None,
+    tournament_filter: dict | None = None,
+) -> tuple[int, int]:
     """
     Retorna (total_collected, total_pending) en pesos CLP.
-    - total_collected: suma de pagos validados (opcionalmente solo de jugadores de series_id).
-    - total_pending: suma de lo que tiene que ser pagado (saldo pendiente por cargo,
-      amount - paid, solo cargos con year_month <= mes actual).
+    Si tournament_filter está definido, filtra por series_ids del torneo y rango year_month.
     """
     db = get_db()
+    sid, sids, pids, ym_start, ym_end = _resolve_filter(series_id, tournament_filter)
+    series_match = _series_match_stage(sid, sids, pids)
+
+    ym_match = {"$lte": current_year_month}
+    if ym_start and ym_end:
+        ym_match = {"$gte": ym_start, "$lte": min(ym_end, current_year_month)}
+
     coll_pipeline = [
         {"$match": {"status": {"$in": [PaymentStatus.confirmed.value, "validated"]}}},
     ]
-    if series_id:
+    if sid or sids:
         coll_pipeline.extend([
             {"$lookup": {"from": "players", "localField": "player_id", "foreignField": "_id", "as": "_pl"}},
             {"$unwind": {"path": "$_pl", "preserveNullAndEmptyArrays": False}},
-            {"$match": {"_pl.primary_series_id": oid(series_id)}},
+            {"$match": {"_pl.primary_series_id": oid(sid) if sid else {"$in": [oid(s) for s in sids]}}},
         ])
     coll_pipeline.append({"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$amount_total", "$amount"]}}}})
+    # Para payments no hay year_month directo; el filtro por torneo se aplica en charges
     coll_result = await db.payments.aggregate(coll_pipeline).to_list(length=1)
     total_collected = int(coll_result[0]["total"]) if coll_result else 0
 
     pipeline = [
-        {"$match": {"year_month": {"$lte": current_year_month}}},
-        *_series_match_stage(series_id),
+        {"$match": {"year_month": ym_match}},
+        *series_match,
         {"$project": {"rem": {"$subtract": ["$amount", {"$ifNull": ["$paid", 0]}]}}},
         {"$match": {"rem": {"$gt": 0}}},
         {"$group": {"_id": None, "total": {"$sum": "$rem"}}},
@@ -320,15 +447,31 @@ async def get_fees_totals(*, current_year_month: str, series_id: str | None = No
     return total_collected, total_pending
 
 
-async def get_fees_summary_by_period(current_year_month: str, series_id: str | None = None) -> list[dict]:
+async def get_fees_summary_by_period(
+    current_year_month: str,
+    series_id: str | None = None,
+    tournament_filter: dict | None = None,
+) -> list[dict]:
     """
-    Resumen por período. Solo meses <= current_year_month. Montos en pesos CLP.
-    Si series_id está definido, solo cuenta cargos de jugadores de esa serie.
+    Resumen por período. Si tournament_filter, solo meses en [start_month, end_month].
     """
     db = get_db()
-    base_match = {"year_month": {"$lte": current_year_month}}
-    if series_id:
-        player_ids_cursor = db.players.find({"primary_series_id": oid(series_id)}, projection={"_id": 1})
+    sid, sids, pids, ym_start, ym_end = _resolve_filter(series_id, tournament_filter)
+    ym_upper = min(ym_end, current_year_month) if ym_end else current_year_month
+    base_ym = {"$lte": ym_upper}
+    if ym_start and ym_end:
+        base_ym = {"$gte": ym_start, "$lte": ym_upper}
+    base_match: dict = {"year_month": base_ym}
+    if pids:
+        base_match["player_id"] = {"$in": [oid(p) for p in pids]}
+    elif sids:
+        player_ids_cursor = db.players.find({"primary_series_id": {"$in": [oid(s) for s in sids]}}, projection={"_id": 1})
+        player_ids = [p["_id"] async for p in player_ids_cursor]
+        if not player_ids:
+            return []
+        base_match["player_id"] = {"$in": player_ids}
+    elif sid:
+        player_ids_cursor = db.players.find({"primary_series_id": oid(sid)}, projection={"_id": 1})
         player_ids = [p["_id"] async for p in player_ids_cursor]
         if not player_ids:
             return []
@@ -340,7 +483,7 @@ async def get_fees_summary_by_period(current_year_month: str, series_id: str | N
     for ym in months:
         pipeline = [
             {"$match": {"year_month": ym}},
-            *_series_match_stage(series_id),
+            *_series_match_stage(sid, sids, pids),
             {
                 "$group": {
                     "_id": None,
@@ -372,16 +515,24 @@ async def get_fees_summary_by_period(current_year_month: str, series_id: str | N
     return out
 
 
-async def get_player_period_matrix(series_id: str | None = None) -> dict:
+async def get_player_period_matrix(
+    series_id: str | None = None,
+    tournament_filter: dict | None = None,
+) -> dict:
     """
-    Retorna matriz jugador vs períodos con estado de cuota por mes.
-    Estructura: { periods: [ym,...], players: [{ player_id, player_name, series_id, periods: { ym: {status, amount, paid} } }] }
+    Retorna matriz jugador vs períodos. Si tournament_filter, solo jugadores de esas series
+    y solo cargos en el rango [start_month, end_month].
     """
     db = get_db()
+    sid, sids, pids, ym_start, ym_end = _resolve_filter(series_id, tournament_filter)
 
     q_players: dict = {"active": True}
-    if series_id:
-        q_players["primary_series_id"] = oid(series_id)
+    if pids:
+        q_players["_id"] = {"$in": [oid(p) for p in pids]}
+    elif sids:
+        q_players["primary_series_id"] = {"$in": [oid(s) for s in sids]}
+    elif sid:
+        q_players["primary_series_id"] = oid(sid)
     players_cur = db.players.find(q_players, projection={"password_hash": 0})
 
     player_ids: list[str] = []
@@ -399,12 +550,13 @@ async def get_player_period_matrix(series_id: str | None = None) -> dict:
         return {"periods": [], "players": []}
 
     oids = [oid(x) for x in player_ids]
-    months: list[str] = await db.monthly_charges.distinct(
-        "year_month", {"player_id": {"$in": oids}}
-    )
+    charges_query: dict = {"player_id": {"$in": oids}}
+    if ym_start and ym_end:
+        charges_query["year_month"] = {"$gte": ym_start, "$lte": ym_end}
+    months = await db.monthly_charges.distinct("year_month", charges_query)
     months.sort(reverse=True)
 
-    charges_cur = db.monthly_charges.find({"player_id": {"$in": oids}})
+    charges_cur = db.monthly_charges.find(charges_query)
 
     by_player: dict[str, dict[str, dict]] = {pid: {} for pid in player_ids}
     async for ch in charges_cur:
@@ -443,7 +595,8 @@ async def get_unpaid_periods_for_tournament(tournament_id: str) -> dict | None:
     start_month = t.get("start_month")
     end_month = t.get("end_month")
     sids = t.get("series_ids") or []
-    if not start_month or not end_month or start_month > end_month or not sids:
+    pids = t.get("player_ids") or []
+    if not start_month or not end_month or start_month > end_month or (not sids and not pids):
         return {
             "tournament_id": tournament_id,
             "tournament_name": t.get("name", ""),
@@ -453,12 +606,17 @@ async def get_unpaid_periods_for_tournament(tournament_id: str) -> dict | None:
         }
 
     db = get_db()
-    sids_oids = [oid(s) for s in sids]
-    # Jugadores activos cuya serie está en el torneo
-    players_cur = db.players.find(
-        {"active": True, "primary_series_id": {"$in": sids_oids}},
-        projection={"password_hash": 0},
-    )
+    if pids:
+        players_cur = db.players.find(
+            {"active": True, "_id": {"$in": [oid(p) for p in pids]}},
+            projection={"password_hash": 0},
+        )
+    else:
+        sids_oids = [oid(s) for s in sids]
+        players_cur = db.players.find(
+            {"active": True, "primary_series_id": {"$in": sids_oids}},
+            projection={"password_hash": 0},
+        )
     player_ids: list[str] = []
     players_info: list[dict] = []
     async for p in players_cur:
